@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "English School CRM",
+    "slug": "english-school-crm-mobile",
+    "version": "1.0.0",
+    "sdkVersion": "52.0.0",
+    "orientation": "portrait",
+    "platforms": [
+      "web"
+    ],
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "web": {
+      "bundler": "metro"
+    },
+    "android": {
+      "package": "com.anonymous.englishschoolcrmmobile"
+    }
+  }
+}

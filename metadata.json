@@ -1,0 +1,8 @@
+{
+  "name": "English School CRM",
+  "description": "Enterprise CRM for English School - Spring Boot Backend & React Native Mobile",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

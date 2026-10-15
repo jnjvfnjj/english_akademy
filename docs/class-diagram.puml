@@ -1,0 +1,177 @@
+@startuml EnglishSchoolCRM_ClassDiagram
+
+skinparam classAttributeIconSize 0
+skinparam monochrome true
+skinparam shadowing false
+
+package "Model Layer" {
+    class Student {
+        - Long id
+        - String name
+        - String email
+        - String phone
+        - String level
+        - int balance
+        - int totalClasses
+        - double totalPaid
+        - String ageGroup
+        - String status
+        - String notes
+        + void deductBalance(int hours)
+        + void addBalance(int hours)
+    }
+
+    class Lesson {
+        - Long id
+        - Student student
+        - LocalDate date
+        - String time
+        - String teacherName
+        - String topic
+        - double duration
+        - String status
+        - String notes
+    }
+
+    class Transaction {
+        - Long id
+        - Student student
+        - double amount
+        - String type
+        - String category
+        - LocalDate date
+        - String description
+    }
+
+    class AuditLog {
+        - Long id
+        - String eventType
+        - String details
+        - LocalDateTime timestamp
+    }
+}
+
+package "Design Patterns - Creational" {
+    class Receipt {
+        - String receiptNumber
+        - String studentName
+        - String studentEmail
+        - double amount
+        - int hoursPurchased
+        - String pricingPolicy
+        - LocalDateTime issuedAt
+        - String footerMessage
+        + String generatePrintableText()
+    }
+
+    class ReceiptBuilder {
+        - String receiptNumber
+        - String studentName
+        - String studentEmail
+        - double amount
+        - int hoursPurchased
+        - String pricingPolicy
+        - LocalDateTime issuedAt
+        - String footerMessage
+        + ReceiptBuilder studentEmail()
+        + ReceiptBuilder amount()
+        + ReceiptBuilder hoursPurchased()
+        + ReceiptBuilder pricingPolicy()
+        + Receipt build()
+    }
+    
+    Receipt +-- ReceiptBuilder : Nested Builder
+}
+
+package "Design Patterns - Behavioral" {
+    interface PricingStrategy {
+        + double calculatePrice(int hours)
+        + String getPolicyDescription()
+    }
+
+    class RegularPricingStrategy implements PricingStrategy {
+        + double calculatePrice(int hours)
+    }
+
+    class PackagePricingStrategy implements PricingStrategy {
+        + double calculatePrice(int hours)
+    }
+
+    class VipGoldPricingStrategy implements PricingStrategy {
+        + double calculatePrice(int hours)
+    }
+
+    class PricingContext {
+        - PricingStrategy pricingStrategy
+        + double executeStrategy(int hours)
+        + String executeGetDescription()
+    }
+
+    PricingContext o--> PricingStrategy : Stratagem
+}
+
+package "Design Patterns - Observer Events" {
+    abstract class SchoolEvent {
+        - String eventType
+        - String details
+    }
+
+    class StudentBalanceEvent extends SchoolEvent {
+        - Long studentId
+        - int oldBalance
+        - int newBalance
+    }
+
+    class LessonStatusEvent extends SchoolEvent {
+        - Long lessonId
+        - String oldStatus
+        - String newStatus
+    }
+
+    class SchoolEventListener {
+        - AuditLogRepository auditLogRepository
+        + void handleSchoolEvent(SchoolEvent event)
+    }
+}
+
+package "Service layer" {
+    interface StudentService {
+        + List<StudentDto> getAllStudents()
+        + StudentDto getStudentById(Long id)
+        + StudentDto createStudent(StudentDto dto)
+        + void adjustStudentBalance(Long id, int amount)
+    }
+
+    class StudentServiceImpl implements StudentService {
+        - StudentRepository studentRepository
+        - ApplicationEventPublisher eventPublisher
+    }
+
+    interface LessonService {
+        + List<LessonDto> getAllLessons()
+        + void updateLessonStatus(Long id, String status, String notes)
+    }
+
+    class LessonServiceImpl implements LessonService {
+        - LessonRepository lessonRepository
+        - StudentRepository studentRepository
+    }
+
+    interface TransactionService {
+        + TransactionDto createTransaction(TransactionDto dto)
+    }
+
+    class TransactionServiceImpl implements TransactionService {
+        - TransactionRepository transactionRepository
+        - StudentRepository studentRepository
+        - ApplicationEventPublisher eventPublisher
+    }
+}
+
+Student "1" *--> "0..*" Lesson : scheduling association
+Student "1" *--> "0..*" Transaction : accounts history
+TransactionServiceImpl ..> PricingContext : uses
+TransactionServiceImpl ..> ReceiptBuilder : builds
+SchoolEventListener ..> AuditLog : stores in DB
+
+@enduml
