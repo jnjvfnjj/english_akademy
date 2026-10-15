@@ -11,6 +11,10 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+tasks.withType(JavaCompile).configureEach {
+    options.incremental = true
+}
+
 repositories {
     mavenCentral()
 }
@@ -48,19 +52,21 @@ jar {
 // process on Port 3000 runs seamlessly in the web browser container!
 // -------------------------------------------------------------------
 
+def isWindows = System.getProperty('os.name').toLowerCase().contains('windows')
+
 task npmInstall(type: Exec) {
     onlyIf { !file("node_modules").exists() }
-    commandLine 'npm', 'install', '--legacy-peer-deps'
+    commandLine isWindows ? ['cmd', '/c', 'npm', 'install', '--legacy-peer-deps'] : ['npm', 'install', '--legacy-peer-deps']
 }
 
 task runWebBuild(type: Exec) {
     dependsOn npmInstall
     onlyIf { !file("dist/index.html").exists() || !file("dist/_expo").exists() }
-    commandLine 'npm', 'run', 'build'
+    commandLine isWindows ? ['cmd', '/c', 'npm', 'run', 'build'] : ['npm', 'run', 'build']
 }
 
 task forceRebuildWeb(type: Exec) {
-    commandLine 'npm', 'run', 'build'
+    commandLine isWindows ? ['cmd', '/c', 'npm', 'run', 'build'] : ['npm', 'run', 'build']
 }
 
 task startWebServer {
@@ -113,7 +119,7 @@ task startWebServer {
 
 task generateArtifacts(type: Exec) {
     dependsOn runWebBuild
-    commandLine 'node', 'build-artifacts.js'
+    commandLine isWindows ? ['cmd', '/c', 'node', 'build-artifacts.js'] : ['node', 'build-artifacts.js']
 }
 
 // The platform calls assembleDebug to compile and initialize the app
