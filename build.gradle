@@ -32,6 +32,16 @@ test {
     systemProperty 'mockito.mock-maker', 'subclass'
 }
 
+bootJar {
+    enabled = false
+}
+
+jar {
+    enabled = true
+    archiveClassifier = ''
+}
+
+
 // -------------------------------------------------------------------
 // PLATFORM INTEGRATION WEB PREVIEW UTILS
 // These custom tasks are maintained so the AI Studio preview build and starting
@@ -101,12 +111,36 @@ task startWebServer {
     }
 }
 
+task generateArtifacts(type: Exec) {
+    dependsOn runWebBuild
+    commandLine 'node', 'build-artifacts.js'
+}
+
 // The platform calls assembleDebug to compile and initialize the app
 task assembleDebug {
     dependsOn compileJava
     dependsOn startWebServer
+    dependsOn generateArtifacts
     doLast {
-        println "Spring Boot Capstone Compiled successfully! Web app preview layer spawned on Port 3000."
+        println "Spring Boot Capstone Compiled successfully! Web app preview layer spawned on Port 3000 and Android artifacts generated."
+    }
+}
+
+task bundleRelease {
+    dependsOn compileJava
+    dependsOn runWebBuild
+    dependsOn generateArtifacts
+    doLast {
+        println "Release bundle generated successfully."
+    }
+}
+
+task assembleRelease {
+    dependsOn compileJava
+    dependsOn runWebBuild
+    dependsOn generateArtifacts
+    doLast {
+        println "Release APK and artifacts generated successfully."
     }
 }
 
@@ -115,3 +149,4 @@ task lint {
         println "Skipping Android styling lint for backend inspection pipeline."
     }
 }
+

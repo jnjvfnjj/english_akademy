@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
-import { RootState, Student, Group, addStudent, addGroup, addLesson, addTransaction } from '../../store';
+import { RootState, Student, Group, addStudent, addGroup, deleteGroup, addLesson, addTransaction } from '../../store';
 import StudentStatusBadge from '../../components/StudentStatusBadge';
 import StudentDetailModal from '../../components/StudentDetailModal';
 import GroupDetailModal from '../../components/GroupDetailModal';
-import { Users, GraduationCap, Calendar, DollarSign, Plus, ArrowUpRight, TrendingUp, ChevronRight, X, Clock, CheckCircle, Search, Shield, BookOpen } from 'lucide-react-native';
+import { Users, GraduationCap, Calendar, DollarSign, Plus, ArrowUpRight, TrendingUp, ChevronRight, X, Clock, CheckCircle, Search, Shield, BookOpen, Trash2 } from 'lucide-react-native';
 
 export default function DashboardScreen({ navigation }: any) {
   const dispatch = useDispatch();
@@ -27,6 +27,8 @@ export default function DashboardScreen({ navigation }: any) {
   // Modals for student info page and group students list
   const [selectedStudentInfo, setSelectedStudentInfo] = useState<Student | null>(null);
   const [groupModalKey, setGroupModalKey] = useState<string | null>(null);
+  const [groupToDelete, setGroupToDelete] = useState<Group | null>(null);
+
 
   // Selector state for level groups
   const [selectedLevelGroup, setSelectedLevelGroup] = useState<string | null>('B1');
@@ -376,13 +378,33 @@ export default function DashboardScreen({ navigation }: any) {
                     <Text className="text-indigo-600 text-[10px] font-semibold mt-1">Преп.: {item.teacherName}</Text>
                   ) : null}
                 </View>
-                <View className={`w-8 h-8 rounded-full items-center justify-center ${isSelected ? 'bg-indigo-600' : 'bg-slate-200'}`}>
-                  <Text className={`text-xs font-bold ${isSelected ? 'text-white' : 'text-slate-800'}`}>{count}</Text>
+                <View className="flex-row items-center gap-2">
+                  <View className={`w-8 h-8 rounded-full items-center justify-center ${isSelected ? 'bg-indigo-600' : 'bg-slate-200'}`}>
+                    <Text className={`text-xs font-bold ${isSelected ? 'text-white' : 'text-slate-800'}`}>{count}</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      // @ts-ignore
+                      if (e && e.stopPropagation) e.stopPropagation();
+                      setGroupToDelete(item);
+                    }}
+                    className="w-8 h-8 rounded-full items-center justify-center bg-rose-50 hover:bg-rose-100 border border-rose-200"
+                    accessibilityLabel="Удалить группу"
+                  >
+                    <Trash2 size={13} color="#e11d48" />
+                  </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             );
           })}
+          {groups.length === 0 && (
+            <View className="w-full p-6 bg-slate-50 border border-slate-200 rounded-xl items-center justify-center">
+              <Text className="text-sm font-semibold text-slate-600">Нет учебных групп</Text>
+              <Text className="text-xs text-slate-400 mt-1">Нажмите «+ Добавить группу», чтобы создать группу</Text>
+            </View>
+          )}
         </View>
+
 
         {selectedLevelGroup && (
           <View className="bg-slate-50 border border-slate-200/80 p-4 rounded-xl">
@@ -1079,8 +1101,75 @@ export default function DashboardScreen({ navigation }: any) {
           setStudentLevel(grp);
           setModalType('student');
         }}
+        onDeleteGroup={(grpKey) => {
+          const target = groups.find(g => g.key === grpKey || g.title === grpKey || g.id === grpKey);
+          if (target) {
+            setGroupToDelete(target);
+          }
+        }}
       />
+
+      {/* DELETE GROUP CONFIRMATION MODAL */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={!!groupToDelete}
+        onRequestClose={() => setGroupToDelete(null)}
+      >
+        <View className="flex-1 justify-center items-center bg-black/60 p-4">
+          <View className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl border border-slate-100">
+            <View className="flex-row items-center justify-between mb-4">
+              <View className="w-12 h-12 rounded-2xl bg-rose-100 items-center justify-center">
+                <Trash2 size={24} color="#e11d48" />
+              </View>
+              <TouchableOpacity
+                onPress={() => setGroupToDelete(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 items-center justify-center hover:bg-slate-200"
+              >
+                <X size={18} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <Text className="text-lg font-bold text-slate-900 mb-2">
+              Удалить группу «{groupToDelete?.title}»?
+            </Text>
+
+            <Text className="text-sm text-slate-600 mb-6 leading-relaxed">
+              Вы действительно хотите удалить эту группу из учебных групп? Студенты сохранятся в базе данных школы.
+            </Text>
+
+            <View className="flex-row justify-end gap-3">
+              <TouchableOpacity
+                onPress={() => setGroupToDelete(null)}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50"
+              >
+                <Text className="text-sm font-semibold text-slate-700">Отмена</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  if (groupToDelete) {
+                    dispatch(deleteGroup(groupToDelete.id));
+                    if (selectedLevelGroup === groupToDelete.key) {
+                      setSelectedLevelGroup(null);
+                    }
+                    if (groupModalKey === groupToDelete.key) {
+                      setGroupModalKey(null);
+                    }
+                    setGroupToDelete(null);
+                  }
+                }}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 flex-row items-center gap-2 shadow-sm"
+              >
+                <Trash2 size={16} color="#ffffff" />
+                <Text className="text-sm font-bold text-white">Да, удалить группу</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
     </ScrollView>
   );
 }
+

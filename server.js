@@ -3,7 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 
-const PORT = 3000;
+const DEV_PORT = 3000;
+const CLOUD_RUN_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
 const PUBLIC_DIR = path.join(__dirname, 'dist');
 
 const MIME_TYPES = {
@@ -73,7 +74,7 @@ function checkAndAutoBuild() {
 // Perform instant check
 checkAndAutoBuild();
 
-const server = http.createServer((req, res) => {
+const handleRequest = (req, res) => {
   console.log(`[Static Server] ${req.method} ${req.url}`);
 
   // Handle live build-status API endpoint for the diagnostics client-side polling
@@ -88,8 +89,16 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Handle direct health check probes
-  if (req.url === '/health' || req.url === '/api/health') {
+  // Handle direct health check probes for Cloud Run, Kubernetes, and local dev
+  const normalizedUrl = req.url.split('?')[0];
+  if (
+    normalizedUrl === '/health' ||
+    normalizedUrl === '/api/health' ||
+    normalizedUrl === '/_health' ||
+    normalizedUrl === '/healthz' ||
+    normalizedUrl === '/livez' ||
+    normalizedUrl === '/readyz'
+  ) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'healthy', uptime: process.uptime() }));
     return;
@@ -139,7 +148,8 @@ const server = http.createServer((req, res) => {
       serveFile(filePath, res);
     }
   });
-});
+};
+
 
 function serveFile(filePath, res) {
   const ext = path.extname(filePath).toLowerCase();
@@ -324,14 +334,46 @@ function getDiagnosticHtml() {
 </html>`;
 }
 
+// Primary dev server on Port 3000
+const server = http.createServer(handleRequest);
+
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.log(`[Static Server] Port ${PORT} is already in use by an active instance. Exiting secondary process safely.`);
-    process.exit(0);
+    console.log(`[Static Server] Port ${DEV_PORT} is in use by an existing instance.`);
   } else {
-    console.error('[Static Server] Server error:', err);
-    process.exit(1);
+    console.error('[Static Server] Server error on port ' + DEV_PORT + ':', err);
   }
+});
+
+server.listen(DEV_PORT, '0.0.0.0', () => {
+  console.log(`[Static Server] Running on http://0.0.0.0:${DEV_PORT}`);
+});
+
+// Cloud Run ingress server on CLOUD_RUN_PORT (e.g. 8080) when running in Cloud Run production
+if (CLOUD_RUN_PORT && CLOUD_RUN_PORT !== DEV_PORT) {
+  const cloudRunServer = http.createServer(handleRequest);
+
+  cloudRunServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`[Static Server] Port ${CLOUD_RUN_PORT} already bound (e.g. dev container reverse proxy). Listening on port ${DEV_PORT}.`);
+    } else {
+      console.error('[Static Server] Server error on port ' + CLOUD_RUN_PORT + ':', err);
+    }
+  });
+
+  cloudRunServer.listen(CLOUD_RUN_PORT, '0.0.0.0', () => {
+    console.log(`[Static Server] Cloud Run live listener active on http://0.0.0.0:${CLOUD_RUN_PORT}`);
+  });
+}
+
+process.on('SIGTERM', () => {
+  console.log('[Static Server] SIGTERM signal received. Shutting down gracefully.');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('[Static Server] SIGINT signal received. Shutting down gracefully.');
+  process.exit(0);
 });
 
 process.on('uncaughtException', (err) => {
@@ -342,8 +384,5 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Static Server] Unhandled rejection:', reason);
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Static Server] Running on http://0.0.0.0:${PORT}`);
-});
 
 

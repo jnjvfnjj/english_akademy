@@ -44,6 +44,11 @@ try {
   } else {
     console.error('[Post Build] index.html not found in dist/.');
   }
+
+  // Generate mobile and web deployment artifacts (APK, AAB, build outputs)
+  const { generateArtifacts } = require('./build-artifacts');
+  generateArtifacts();
 } catch (e) {
   console.error('[Post Build] Failed to run post-build hook:', e);
 }
+
