@@ -217,7 +217,7 @@ export default function DashboardScreen({ navigation }: any) {
   );
 
   return (
-    <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 24, paddingBottom: 80, flexGrow: 1 }}>
+    <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 12, paddingBottom: 80, flexGrow: 1 }}>
       
       {/* Header section */}
       <View className="mb-8 flex-row justify-between items-center flex-wrap">
@@ -455,10 +455,10 @@ export default function DashboardScreen({ navigation }: any) {
       </View>
 
       {/* TODAY'S LESSONS & QUICK CRM ACCESS */}
-      <View className="flex-row flex-wrap gap-6 lg:flex-nowrap w-full">
+      <View className="flex-row flex-wrap gap-3 md:gap-6 lg:flex-nowrap w-full">
         
         {/* Today's Lessons List */}
-        <View className="flex-1 min-w-[340px] bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+        <View className="flex-1 min-w-0 md:min-w-[340px] bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-6 flex flex-col">
           <View className="flex-row justify-between items-center mb-6">
             <View>
               <Text className="text-lg font-bold text-slate-800">Уроки на сегодня и расписание</Text>
@@ -507,7 +507,7 @@ export default function DashboardScreen({ navigation }: any) {
         </View>
 
         {/* Quick Access CRM Panel */}
-        <View className="w-full lg:w-96 bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
+        <View className="w-full lg:w-96 bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-6 flex flex-col justify-between">
           <View>
             <Text className="text-lg font-bold text-slate-800 mb-2">Быстрый доступ к CRM</Text>
             <Text className="text-xs text-slate-500 mb-6">Управление группами, учет и переход к реестру студентов.</Text>
@@ -1172,4 +1172,3 @@ export default function DashboardScreen({ navigation }: any) {
     </ScrollView>
   );
 }
-

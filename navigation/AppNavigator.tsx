@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, Platform } from 'react-native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSelector, useDispatch } from 'react-redux';
@@ -45,8 +45,8 @@ function TabNavigator() {
           backgroundColor: '#ffffff',
           borderTopColor: '#e2e8f0',
           position: 'relative',
-          height: 60,
-          paddingBottom: 8,
+          height: Platform.OS === 'ios' ? 82 : 64,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 8,
           paddingTop: 8,
           shadowColor: '#0f172a',
           shadowOffset: { width: 0, height: -2 },
@@ -60,21 +60,21 @@ function TabNavigator() {
         headerTintColor: '#ffffff',
         headerTitleStyle: {
           fontWeight: 'bold',
-          fontSize: 16,
+          fontSize: 14,
           letterSpacing: 0.5,
         },
         // Right header actions Logout trigger
         headerRight: () => (
           <TouchableOpacity 
             onPress={() => dispatch(logout())}
-            className="mr-4 px-3 py-1.5 flex-row items-center bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
+            className="mr-2 px-2.5 py-2 flex-row items-center bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
           >
             <LogOut size={14} color="#f43f5e" className="mr-1.5" />
-            <Text className="text-rose-400 text-xs font-bold">Выйти</Text>
+            <Text className="text-rose-400 text-[11px] font-bold">Выйти</Text>
           </TouchableOpacity>
         ),
         headerLeft: () => (
-          <View className="ml-4 flex-row items-center gap-2">
+          <View className="ml-2 flex-row items-center gap-1.5">
             <BookOpen size={18} color="#6366f1" />
             <Text className="text-white text-sm font-bold tracking-wide">BridgeCRM</Text>
           </View>

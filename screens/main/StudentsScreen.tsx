@@ -182,14 +182,14 @@ export default function StudentsScreen({ route }: any) {
     <ScrollView 
       className="flex-1 w-full bg-slate-50" 
       style={{ flex: 1, width: '100%', height: '100%' }}
-      contentContainerStyle={{ padding: 24, paddingBottom: 160, flexGrow: 1 }}
+      contentContainerStyle={{ padding: 12, paddingBottom: 100, flexGrow: 1 }}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={true}
     >
-      <View className="flex-row flex-wrap gap-6 lg:flex-nowrap w-full">
+      <View className="flex-row flex-wrap gap-3 md:gap-6 lg:flex-nowrap w-full">
       
       {/* LEFT: Students list register (3/5ths width on desktop) */}
-      <View className="flex-1 min-w-[340px] bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+      <View className="flex-1 min-w-0 md:min-w-[340px] bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-6 flex flex-col">
         <View className="flex-row justify-between items-center mb-2 flex-wrap gap-3">
           <View>
             <Text className="text-xl font-bold text-slate-800">Реестр студентов</Text>
@@ -311,7 +311,7 @@ export default function StudentsScreen({ route }: any) {
       </View>
 
       {/* RIGHT: Detail View / CRM Actions Panel */}
-      <View className="w-full lg:w-96 bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+      <View className="w-full lg:w-96 bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-6 flex flex-col">
         {selectedStudent ? (
           <View className="space-y-6">
             

@@ -111,11 +111,11 @@ export default function ScheduleScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 24, paddingBottom: 80, flexGrow: 1 }}>
-      <View className="flex-row flex-wrap gap-6 lg:flex-nowrap w-full">
+    <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 12, paddingBottom: 80, flexGrow: 1 }}>
+      <View className="flex-row flex-wrap gap-3 md:gap-6 lg:flex-nowrap w-full">
       
       {/* LEFTSIDE: Main Daily List scheduler */}
-      <View className="flex-1 min-w-[340px] bg-white rounded-xl border border-slate-200 shadow-sm p-6 overflow-hidden flex flex-col">
+      <View className="flex-1 min-w-0 md:min-w-[340px] bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-6 overflow-hidden flex flex-col">
         <View className="flex flex-row justify-between items-center mb-6 flex-wrap gap-4">
           <View>
             <Text className="text-xl font-bold text-slate-800">Расписание уроков по группам</Text>

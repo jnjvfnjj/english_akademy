@@ -377,7 +377,7 @@ export default function DatabaseScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 24, flexGrow: 1, paddingBottom: 60 }}>
+    <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 12, flexGrow: 1, paddingBottom: 60 }}>
       
       {/* Top Database Banner */}
       <View className="mb-6 bg-slate-900 rounded-2xl p-6 shadow-md border border-slate-800 flex-row items-center justify-between flex-wrap gap-4">

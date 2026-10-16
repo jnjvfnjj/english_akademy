@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Modal, Pressable, TouchableOpacity, ScrollView, TextInput } from 'react-native';
+import { View, Text, Modal, Pressable, TouchableOpacity, ScrollView, TextInput, Linking, Alert } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState, Student, updateStudent, addTransaction } from '../store';
 import StudentStatusBadge from './StudentStatusBadge';
@@ -90,6 +90,20 @@ export default function StudentDetailModal({
     }
   };
 
+  const handleCallStudent = async () => {
+    const phoneNumber = currentStudent.phone.replace(/[^\d+]/g, '');
+    if (!phoneNumber) {
+      Alert.alert('Нет номера телефона', 'Добавьте номер в карточке студента.');
+      return;
+    }
+
+    try {
+      await Linking.openURL(`tel:${phoneNumber}`);
+    } catch {
+      Alert.alert('Не удалось открыть вызов', 'Проверьте номер телефона и попробуйте ещё раз.');
+    }
+  };
+
   return (
     <Modal
       animationType="slide"
@@ -167,15 +181,20 @@ export default function StudentDetailModal({
                 </View>
               </View>
 
-              <View className="flex-row items-center gap-2.5">
+              <TouchableOpacity
+                onPress={handleCallStudent}
+                accessibilityRole="button"
+                accessibilityLabel={`Позвонить студенту ${currentStudent.name}`}
+                className="min-h-11 flex-row items-center gap-2.5 rounded-lg"
+              >
                 <View className="w-8 h-8 rounded-lg bg-emerald-50 items-center justify-center">
                   <Phone size={16} color="#059669" />
                 </View>
                 <View>
                   <Text className="text-[10px] uppercase font-bold text-slate-400">Телефон</Text>
-                  <Text className="text-xs font-semibold text-slate-800">{currentStudent.phone}</Text>
+                  <Text className="text-xs font-semibold text-indigo-700">{currentStudent.phone} · Позвонить</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
 
               <View className="flex-row items-center gap-2.5">
                 <View className="w-8 h-8 rounded-lg bg-amber-50 items-center justify-center">

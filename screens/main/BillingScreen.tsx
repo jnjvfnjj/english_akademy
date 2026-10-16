@@ -162,11 +162,11 @@ export default function BillingScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 24, paddingBottom: 80, flexGrow: 1 }}>
-      <View className="flex-row flex-wrap gap-6 lg:flex-nowrap w-full">
+    <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 12, paddingBottom: 80, flexGrow: 1 }}>
+      <View className="flex-row flex-wrap gap-3 md:gap-6 lg:flex-nowrap w-full">
       
       {/* LEFT ASPECT: Ledger timeline */}
-      <View className="flex-1 min-w-[340px] bg-white rounded-xl border border-slate-200 shadow-sm p-6 overflow-hidden flex flex-col">
+      <View className="flex-1 min-w-0 md:min-w-[340px] bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-6 overflow-hidden flex flex-col">
         <View className="flex flex-row justify-between items-center mb-6 flex-wrap gap-4">
           <View>
             <View className="flex-row items-center gap-2">
@@ -274,7 +274,7 @@ export default function BillingScreen() {
       </View>
 
       {/* RIGHT PANEL: Balance calculation indicators */}
-      <View className="w-full lg:w-96 bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
+      <View className="w-full lg:w-96 bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-6 flex flex-col justify-between">
         <View className="space-y-6">
           <Text className="text-lg font-bold text-slate-800">Финансовая аналитика</Text>
           <Text className="text-xs text-slate-500">Live-обзор текущего операционного баланса и рентабельности школы.</Text>
