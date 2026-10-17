@@ -12,7 +12,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   
-  // Register form states (strictly for teachers; admin is unique and cannot be registered)
+  // Public registration is limited to teachers. Admins are created from the admin workspace.
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
@@ -243,7 +243,7 @@ export default function LoginScreen() {
               </View>
             </View>
           ) : (
-            /* REGISTRATION TAB (ADMIN CANNOT BE REGISTERED; STRICTLY TEACHER) */
+            /* PUBLIC REGISTRATION TAB (TEACHERS ONLY) */
             <View>
               <Text className="text-base font-bold text-slate-800 mb-1 text-center">
                 Регистрация преподавателя
@@ -262,7 +262,7 @@ export default function LoginScreen() {
                     Роль: Преподаватель
                   </Text>
                   <Text className="text-[11px] text-slate-500 mt-0.5">
-                    Администратором является только один человек
+                    Новые администраторы создаются из кабинета администратора
                   </Text>
                 </View>
                 <View className="px-2 py-0.5 bg-indigo-100 rounded">

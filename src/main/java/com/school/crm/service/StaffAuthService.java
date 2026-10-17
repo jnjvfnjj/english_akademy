@@ -46,21 +46,35 @@ public class StaffAuthService {
 
     @Transactional
     public AuthResponse registerTeacher(AuthRequest request) {
+        requireName(request, "преподавателя");
+        StaffAccount teacher = createAccount(request, "TEACHER");
+        return createSession(teacher);
+    }
+
+    @Transactional
+    public StaffAccount createAdminAccount(AuthRequest request) {
+        requireName(request, "администратора");
+        return createAccount(request, "ADMIN");
+    }
+
+    private void requireName(AuthRequest request, String accountType) {
         if (request.name() == null || request.name().isBlank()) {
-            throw new IllegalArgumentException("Укажите имя преподавателя.");
+            throw new IllegalArgumentException("Укажите имя " + accountType + ".");
         }
+    }
+
+    private StaffAccount createAccount(AuthRequest request, String role) {
         String email = request.email().trim().toLowerCase();
         if (accountRepository.existsByEmailIgnoreCase(email)) {
             throw new IllegalStateException("Пользователь с таким email уже зарегистрирован.");
         }
 
-        StaffAccount teacher = accountRepository.save(new StaffAccount(
+        return accountRepository.save(new StaffAccount(
                 email,
                 request.name().trim(),
                 passwordEncoder.encode(request.password()),
-                "TEACHER"
+                role
         ));
-        return createSession(teacher);
     }
 
     @Transactional(readOnly = true)

@@ -4,7 +4,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState, logout, setSyncError, store } from '../store';
-import { Home, Users, Calendar, DollarSign, LogOut, BookOpen, Database } from 'lucide-react-native';
+import { Home, Users, Calendar, DollarSign, LogOut, BookOpen, Database, ShieldCheck } from 'lucide-react-native';
 import { ApiError, apiRequest, clearAuthToken } from '../services/api';
 
 // Import Screens
@@ -14,6 +14,7 @@ import StudentsScreen from '../screens/main/StudentsScreen';
 import ScheduleScreen from '../screens/main/ScheduleScreen';
 import BillingScreen from '../screens/main/BillingScreen';
 import DatabaseScreen from '../screens/main/DatabaseScreen';
+import AdminUsersScreen from '../screens/main/AdminUsersScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -53,6 +54,8 @@ function TabNavigator() {
             return <DollarSign size={size} color={color} />;
           } else if (route.name === 'Database') {
             return <Database size={size} color={color} />;
+          } else if (route.name === 'Administrators') {
+            return <ShieldCheck size={size} color={color} />;
           }
           return null;
         },
@@ -106,6 +109,9 @@ function TabNavigator() {
       )}
       {isAdmin && (
         <Tab.Screen name="Database" component={DatabaseScreen} options={{ title: 'Управление СУБД', tabBarLabel: 'СУБД' }} />
+      )}
+      {isAdmin && (
+        <Tab.Screen name="Administrators" component={AdminUsersScreen} options={{ title: 'Управление администраторами', tabBarLabel: 'Админы' }} />
       )}
     </Tab.Navigator>
   );
