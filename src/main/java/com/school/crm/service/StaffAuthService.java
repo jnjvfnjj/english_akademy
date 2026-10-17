@@ -44,6 +44,7 @@ public class StaffAuthService {
     @Transactional
     public AuthResponse login(AuthRequest request) {
         StaffAccount account = accountRepository.findByEmailIgnoreCase(request.email().trim())
+                .filter(StaffAccount::isEnabled)
                 .filter(candidate -> passwordEncoder.matches(request.password(), candidate.getPasswordHash()))
                 .orElseThrow(() -> new InvalidCredentialsException("Неверный email или пароль."));
         return createSession(account);
@@ -81,6 +82,24 @@ public class StaffAuthService {
     public StaffAccount createAdminAccount(AuthRequest request) {
         requireName(request, "администратора");
         return createAccount(request, "ADMIN");
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.List<StaffAccount> getTeachers() {
+        return accountRepository.findAllByRoleOrderByNameAsc("TEACHER");
+    }
+
+    @Transactional
+    public StaffAccount setTeacherEnabled(long teacherId, boolean enabled) {
+        StaffAccount teacher = accountRepository.findById(teacherId)
+                .filter(account -> "TEACHER".equals(account.getRole()))
+                .orElseThrow(() -> new IllegalArgumentException("Преподаватель не найден."));
+        teacher.setEnabled(enabled);
+        StaffAccount saved = accountRepository.save(teacher);
+        if (!enabled) {
+            sessionRepository.deleteAllByAccount_Id(teacherId);
+        }
+        return saved;
     }
 
     @Transactional
@@ -147,6 +166,7 @@ public class StaffAuthService {
     public StaffAccount authenticate(String rawToken) {
         return sessionRepository.findByTokenHashAndExpiresAtAfter(hashToken(rawToken), Instant.now())
                 .map(StaffSession::getAccount)
+                .filter(StaffAccount::isEnabled)
                 .orElse(null);
     }
 

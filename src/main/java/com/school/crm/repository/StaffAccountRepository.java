@@ -7,6 +7,7 @@ import java.util.Optional;
 public interface StaffAccountRepository extends JpaRepository<StaffAccount, Long> {
     Optional<StaffAccount> findByEmailIgnoreCase(String email);
     Optional<StaffAccount> findFirstByRole(String role);
+    java.util.List<StaffAccount> findAllByRoleOrderByNameAsc(String role);
     boolean existsByEmailIgnoreCase(String email);
     boolean existsByRole(String role);
 }

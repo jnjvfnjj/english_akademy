@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -205,5 +206,27 @@ class StaffAuthServiceTest {
         );
 
         verify(accountRepository, never()).save(any(StaffAccount.class));
+    }
+
+    @Test
+    void disablingTeacherRevokesSessionsAndCanLaterBeReenabled() {
+        StaffAccount teacher = new StaffAccount(
+                "teacher@school.com",
+                "Alex Teacher",
+                "encoded-password",
+                "TEACHER"
+        );
+        when(accountRepository.findById(42L)).thenReturn(java.util.Optional.of(teacher));
+        when(accountRepository.save(teacher)).thenReturn(teacher);
+
+        StaffAccount disabled = authService.setTeacherEnabled(42L, false);
+
+        assertEquals(false, disabled.isEnabled());
+        verify(sessionRepository).deleteAllByAccount_Id(42L);
+
+        StaffAccount reenabled = authService.setTeacherEnabled(42L, true);
+
+        assertEquals(true, reenabled.isEnabled());
+        verify(sessionRepository, times(1)).deleteAllByAccount_Id(42L);
     }
 }

@@ -4,7 +4,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState, logout, setSyncError, store } from '../store';
-import { Home, Users, Calendar, DollarSign, LogOut, BookOpen, Database, ShieldCheck } from 'lucide-react-native';
+import { Home, Users, Calendar, DollarSign, LogOut, BookOpen, Database, ShieldCheck, GraduationCap, UserRound } from 'lucide-react-native';
 import { ApiError, apiRequest, clearAuthToken } from '../services/api';
 
 // Import Screens
@@ -15,6 +15,8 @@ import ScheduleScreen from '../screens/main/ScheduleScreen';
 import BillingScreen from '../screens/main/BillingScreen';
 import DatabaseScreen from '../screens/main/DatabaseScreen';
 import AdminUsersScreen from '../screens/main/AdminUsersScreen';
+import TeachersScreen from '../screens/main/TeachersScreen';
+import TeacherProfileScreen from '../screens/main/TeacherProfileScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -24,6 +26,7 @@ function TabNavigator() {
   const currentUser = useSelector((state: RootState) => state.auth.user);
   const isAdmin = currentUser?.role === 'Admin';
   const isSuperAdmin = currentUser?.superAdmin === true;
+  const isTeacher = currentUser?.role === 'Teacher';
 
   const handleLogout = async () => {
     const token = store.getState().auth.token;
@@ -57,6 +60,10 @@ function TabNavigator() {
             return <Database size={size} color={color} />;
           } else if (route.name === 'Administrators') {
             return <ShieldCheck size={size} color={color} />;
+          } else if (route.name === 'Teachers') {
+            return <GraduationCap size={size} color={color} />;
+          } else if (route.name === 'Profile') {
+            return <UserRound size={size} color={color} />;
           }
           return null;
         },
@@ -110,6 +117,12 @@ function TabNavigator() {
       )}
       {isAdmin && (
         <Tab.Screen name="Database" component={DatabaseScreen} options={{ title: 'Управление СУБД', tabBarLabel: 'СУБД' }} />
+      )}
+      {isTeacher && (
+        <Tab.Screen name="Profile" component={TeacherProfileScreen} options={{ title: 'Профиль преподавателя', tabBarLabel: 'Профиль' }} />
+      )}
+      {isAdmin && (
+        <Tab.Screen name="Teachers" component={TeachersScreen} options={{ title: 'Управление преподавателями', tabBarLabel: 'Преподаватели' }} />
       )}
       {isSuperAdmin && (
         <Tab.Screen name="Administrators" component={AdminUsersScreen} options={{ title: 'Управление администраторами', tabBarLabel: 'Админы' }} />

@@ -22,6 +22,9 @@ public class StaffAccount {
     @Column(nullable = false)
     private String role;
 
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    private boolean enabled = true;
+
     public StaffAccount() {}
 
     public StaffAccount(String email, String name, String passwordHash, String role) {
@@ -37,4 +40,6 @@ public class StaffAccount {
     public String getPasswordHash() { return passwordHash; }
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
 }

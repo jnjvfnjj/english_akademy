@@ -12,6 +12,19 @@ export interface ApiStaffUser {
   superAdmin: boolean;
 }
 
+export interface ApiTeacherAccount {
+  id: number;
+  name: string;
+  email: string;
+  active: boolean;
+}
+
+export interface ApiTeacherProfile {
+  name: string;
+  email: string;
+  role: 'Teacher';
+}
+
 export interface ApiStudent {
   id: number | string;
   name: string;

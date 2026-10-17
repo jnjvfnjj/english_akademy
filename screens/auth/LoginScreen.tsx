@@ -7,6 +7,7 @@ import { ApiError, apiRequest, ApiStaffUser, saveAuthToken } from '../../service
 
 export default function LoginScreen() {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
+  const [loginRole, setLoginRole] = useState<'teacher' | 'admin'>('admin');
   
   // Login form states
   const [email, setEmail] = useState('');
@@ -38,6 +39,13 @@ export default function LoginScreen() {
         method: 'POST',
         body: JSON.stringify({ email: email.trim(), password })
       });
+      const expectedRole = loginRole === 'admin' ? 'Admin' : 'Teacher';
+      if (response.role !== expectedRole) {
+        setError(loginRole === 'admin'
+          ? 'Эта учётная запись — преподаватель. Выберите вход для преподавателя.'
+          : 'Эта учётная запись — администратор. Выберите вход для администратора.');
+        return;
+      }
       await saveAuthToken(response.token);
       dispatch(setSyncError(null));
       dispatch(login(response));
@@ -192,8 +200,37 @@ export default function LoginScreen() {
             /* LOGIN TAB */
             <View>
               <Text className="text-base font-bold text-slate-800 mb-4 text-center">
-                Авторизация в системе
+                Вход {loginRole === 'admin' ? 'администратора' : 'преподавателя'}
               </Text>
+
+              <View className="mb-5 flex-row rounded-lg border border-slate-200 bg-slate-50 p-1">
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: loginRole === 'teacher' }}
+                  onPress={() => {
+                    setLoginRole('teacher');
+                    setError('');
+                  }}
+                  className={`flex-1 rounded-md py-2.5 ${loginRole === 'teacher' ? 'bg-white shadow-sm' : ''}`}
+                >
+                  <Text className={`text-center text-xs font-bold ${loginRole === 'teacher' ? 'text-indigo-700' : 'text-slate-500'}`}>
+                    Преподаватель
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: loginRole === 'admin' }}
+                  onPress={() => {
+                    setLoginRole('admin');
+                    setError('');
+                  }}
+                  className={`flex-1 rounded-md py-2.5 ${loginRole === 'admin' ? 'bg-white shadow-sm' : ''}`}
+                >
+                  <Text className={`text-center text-xs font-bold ${loginRole === 'admin' ? 'text-indigo-700' : 'text-slate-500'}`}>
+                    Администратор
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
               {/* Email Field */}
               <View className="mb-4">
@@ -232,19 +269,25 @@ export default function LoginScreen() {
 
               {/* Sign In button */}
               <TouchableOpacity
+                accessibilityRole="button"
                 onPress={() => void handleLogin()}
                 disabled={submitting}
                 className={`w-full py-3.5 rounded-lg flex-row justify-center items-center shadow-md shadow-indigo-200 ${submitting ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}
               >
                 <LogIn size={18} color="#ffffff" className="mr-2" />
                 <Text className="text-white text-sm font-bold tracking-wide">
-                  {submitting ? 'Подключение...' : 'Войти'}
+                  {submitting ? 'Подключение...' : `Войти как ${loginRole === 'admin' ? 'администратор' : 'преподаватель'}`}
                 </Text>
               </TouchableOpacity>
 
               <View className="mt-6 pt-4 border-t border-slate-100 flex items-center">
-                <TouchableOpacity 
-                  onPress={() => setActiveTab('register')}
+                <TouchableOpacity
+                  onPress={() => {
+                    setActiveTab('register');
+                    setRegistrationRole('teacher');
+                    setError('');
+                    setSuccessMsg('');
+                  }}
                   className="mt-2"
                 >
                   <Text className="text-xs text-indigo-600 font-bold">

@@ -8,4 +8,5 @@ import java.util.Optional;
 public interface StaffSessionRepository extends JpaRepository<StaffSession, Long> {
     Optional<StaffSession> findByTokenHashAndExpiresAtAfter(String tokenHash, Instant now);
     void deleteByTokenHash(String tokenHash);
+    void deleteAllByAccount_Id(Long accountId);
 }
