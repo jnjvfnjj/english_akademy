@@ -12,13 +12,15 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   
-  // Public registration is limited to teachers. Admins are created from the admin workspace.
+  // Admin registration requires a secret configured on the backend.
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
   const [regSchool, setRegSchool] = useState('Bridge Academy');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
+  const [registrationRole, setRegistrationRole] = useState<'teacher' | 'admin'>('teacher');
+  const [adminRegistrationCode, setAdminRegistrationCode] = useState('');
 
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -56,6 +58,10 @@ export default function LoginScreen() {
       setError('Пожалуйста, укажите контактный email');
       return;
     }
+    if (registrationRole === 'admin' && adminRegistrationCode.length < 16) {
+      setError('Введите код регистрации администратора (не менее 16 символов)');
+      return;
+    }
     if (!regPassword) {
       setError('Пожалуйста, задайте пароль для доступа');
       return;
@@ -68,20 +74,26 @@ export default function LoginScreen() {
     setError('');
     setSubmitting(true);
     try {
-      const response = await apiRequest<ApiStaffUser & { token: string }>('/auth/register', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: regEmail.trim(),
-          name: regName.trim(),
-          password: regPassword
-        })
-      });
+      const response = await apiRequest<ApiStaffUser & { token: string }>(
+        registrationRole === 'admin' ? '/auth/register/admin' : '/auth/register',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            email: regEmail.trim(),
+            name: regName.trim(),
+            password: regPassword,
+            ...(registrationRole === 'admin' ? { registrationCode: adminRegistrationCode } : {})
+          })
+        }
+      );
       await saveAuthToken(response.token);
       dispatch(setSyncError(null));
       setSuccessMsg('Регистрация завершена. Выполняется вход...');
       dispatch(login(response));
     } catch (error) {
-      setError(error instanceof ApiError ? error.message : 'Не удалось зарегистрировать преподавателя.');
+      setError(error instanceof ApiError
+        ? error.message
+        : `Не удалось зарегистрировать ${registrationRole === 'admin' ? 'администратора' : 'преподавателя'}.`);
     } finally {
       setSubmitting(false);
     }
@@ -156,7 +168,7 @@ export default function LoginScreen() {
           >
             <UserPlus size={16} color={activeTab === 'register' ? '#4f46e5' : '#64748b'} />
             <Text className={`text-xs font-bold ${activeTab === 'register' ? 'text-indigo-600' : 'text-slate-500'}`}>
-              Регистрация преподавателя
+              Регистрация
             </Text>
           </TouchableOpacity>
         </View>
@@ -237,43 +249,93 @@ export default function LoginScreen() {
                   className="mt-2"
                 >
                   <Text className="text-xs text-indigo-600 font-bold">
-                    Регистрация для преподавателей →
+                    Создать аккаунт →
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
           ) : (
-            /* PUBLIC REGISTRATION TAB (TEACHERS ONLY) */
+            /* PUBLIC REGISTRATION TAB */
             <View>
               <Text className="text-base font-bold text-slate-800 mb-1 text-center">
-                Регистрация преподавателя
+                Регистрация {registrationRole === 'admin' ? 'администратора' : 'преподавателя'}
               </Text>
               <Text className="text-xs text-slate-400 mb-4 text-center">
-                Создайте учетную запись преподавателя для работы с группами и расписанием
+                {registrationRole === 'admin'
+                  ? 'Для создания аккаунта нужен секретный код регистрации. Уже созданный через терминал аккаунт можно открыть на вкладке «Вход».'
+                  : 'Создайте учетную запись преподавателя для работы с группами и расписанием'}
               </Text>
 
-              {/* Admin constraint notice: Admin cannot be registered */}
+              <View className="mb-4 flex-row rounded-lg border border-slate-200 bg-slate-50 p-1">
+                <TouchableOpacity
+                  onPress={() => {
+                    setRegistrationRole('teacher');
+                    setError('');
+                  }}
+                  className={`flex-1 rounded-md py-2 ${registrationRole === 'teacher' ? 'bg-white shadow-sm' : ''}`}
+                >
+                  <Text className={`text-center text-xs font-bold ${registrationRole === 'teacher' ? 'text-indigo-700' : 'text-slate-500'}`}>
+                    Преподаватель
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    setRegistrationRole('admin');
+                    setError('');
+                  }}
+                  className={`flex-1 rounded-md py-2 ${registrationRole === 'admin' ? 'bg-white shadow-sm' : ''}`}
+                >
+                  <Text className={`text-center text-xs font-bold ${registrationRole === 'admin' ? 'text-indigo-700' : 'text-slate-500'}`}>
+                    Администратор
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               <View className="mb-4 bg-indigo-50/70 border border-indigo-200 rounded-xl p-3 flex-row items-center gap-3">
                 <View className="w-8 h-8 rounded-lg bg-indigo-600 items-center justify-center">
                   <UserCheck size={18} color="#ffffff" />
                 </View>
                 <View className="flex-1">
                   <Text className="text-xs font-bold text-slate-800">
-                    Роль: Преподаватель
+                    Роль: {registrationRole === 'admin' ? 'Администратор' : 'Преподаватель'}
                   </Text>
                   <Text className="text-[11px] text-slate-500 mt-0.5">
-                    Новые администраторы создаются из кабинета администратора
+                    {registrationRole === 'admin'
+                      ? 'Регистрация защищена секретным кодом сервера'
+                      : 'Регистрация доступна для преподавателей'}
                   </Text>
                 </View>
                 <View className="px-2 py-0.5 bg-indigo-100 rounded">
-                  <Text className="text-[10px] font-bold text-indigo-700">Назначено</Text>
+                  <Text className="text-[10px] font-bold text-indigo-700">Выбрано</Text>
                 </View>
               </View>
+
+              {registrationRole === 'admin' ? (
+                <View className="mb-3.5">
+                  <Text className="text-xs font-semibold text-slate-600 uppercase mb-1.5">
+                    Секретный код регистрации *
+                  </Text>
+                  <TextInput
+                    value={adminRegistrationCode}
+                    onChangeText={(text) => {
+                      setAdminRegistrationCode(text);
+                      setError('');
+                    }}
+                    placeholder="Код, заданный на сервере"
+                    autoCapitalize="none"
+                    secureTextEntry
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-4 py-2.5 text-slate-800 text-sm focus:border-indigo-500 focus:bg-white"
+                  />
+                  <Text className="mt-1 text-[11px] text-slate-500">
+                    Код должен быть настроен владельцем сервера и содержать не менее 16 символов.
+                  </Text>
+                </View>
+              ) : null}
 
               {/* Full Name */}
               <View className="mb-3.5">
                 <Text className="text-xs font-semibold text-slate-600 uppercase mb-1.5">
-                  ФИО преподавателя *
+                  ФИО *
                 </Text>
                 <TextInput
                   value={regName}
@@ -363,7 +425,9 @@ export default function LoginScreen() {
               >
                 <UserPlus size={18} color="#ffffff" className="mr-2" />
                 <Text className="text-white text-sm font-bold tracking-wide">
-                  {submitting ? 'Подключение...' : 'Зарегистрироваться как преподаватель'}
+                  {submitting
+                    ? 'Подключение...'
+                    : `Зарегистрироваться как ${registrationRole === 'admin' ? 'администратор' : 'преподаватель'}`}
                 </Text>
               </TouchableOpacity>
 

@@ -1,6 +1,7 @@
 package com.school.crm.controller;
 
 import com.school.crm.model.dto.AuthRequest;
+import com.school.crm.model.dto.AdminRegistrationRequest;
 import com.school.crm.model.dto.AuthResponse;
 import com.school.crm.model.entity.StaffAccount;
 import com.school.crm.service.StaffAuthService;
@@ -32,6 +33,13 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody AuthRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(authService.registerTeacher(request));
+    }
+
+    @PostMapping("/register/admin")
+    public ResponseEntity<AuthResponse> registerAdmin(@Valid @RequestBody AdminRegistrationRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                authService.registerAdmin(request.toAuthRequest(), request.registrationCode())
+        );
     }
 
     @GetMapping("/me")

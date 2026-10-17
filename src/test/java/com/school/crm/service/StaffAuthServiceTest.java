@@ -4,9 +4,9 @@ import com.school.crm.model.dto.AuthRequest;
 import com.school.crm.model.entity.StaffAccount;
 import com.school.crm.repository.StaffAccountRepository;
 import com.school.crm.repository.StaffSessionRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -30,8 +30,17 @@ class StaffAuthServiceTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
-    @InjectMocks
     private StaffAuthService authService;
+
+    @BeforeEach
+    void setUp() {
+        authService = new StaffAuthService(
+                accountRepository,
+                sessionRepository,
+                passwordEncoder,
+                "test-registration-code-1234"
+        );
+    }
 
     @Test
     void createAdminAccountSavesAdminWithNormalizedEmailAndEncodedPassword() {
@@ -75,5 +84,53 @@ class StaffAuthServiceTest {
         assertThrows(IllegalArgumentException.class, () -> authService.registerTeacher(request));
 
         verify(accountRepository, never()).save(any(StaffAccount.class));
+    }
+
+    @Test
+    void registerAdminWithValidCodeCreatesAdminAndSession() {
+        AuthRequest request = new AuthRequest("ADMIN@school.com", "password123", "  Alex Admin  ");
+        when(accountRepository.existsByEmailIgnoreCase("admin@school.com")).thenReturn(false);
+        when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
+        when(accountRepository.save(any(StaffAccount.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var response = authService.registerAdmin(request, "test-registration-code-1234");
+
+        assertEquals("admin@school.com", response.email());
+        assertEquals("Alex Admin", response.name());
+        assertEquals("Admin", response.role());
+        verify(accountRepository).save(any(StaffAccount.class));
+        verify(sessionRepository).save(any());
+    }
+
+    @Test
+    void registerAdminRejectsInvalidCode() {
+        AuthRequest request = new AuthRequest("admin@school.com", "password123", "Alex Admin");
+
+        assertThrows(
+                StaffAuthService.AdminRegistrationException.class,
+                () -> authService.registerAdmin(request, "incorrect-registration-code")
+        );
+
+        verify(accountRepository, never()).save(any(StaffAccount.class));
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void registerAdminIsDisabledWithoutConfiguredCode() {
+        StaffAuthService serviceWithoutCode = new StaffAuthService(
+                accountRepository,
+                sessionRepository,
+                passwordEncoder,
+                ""
+        );
+        AuthRequest request = new AuthRequest("admin@school.com", "password123", "Alex Admin");
+
+        assertThrows(
+                StaffAuthService.AdminRegistrationException.class,
+                () -> serviceWithoutCode.registerAdmin(request, "test-registration-code-1234")
+        );
+
+        verify(accountRepository, never()).save(any(StaffAccount.class));
+        verify(sessionRepository, never()).save(any());
     }
 }

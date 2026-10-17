@@ -6,6 +6,8 @@ import com.school.crm.model.entity.StaffAccount;
 import com.school.crm.model.entity.StaffSession;
 import com.school.crm.repository.StaffAccountRepository;
 import com.school.crm.repository.StaffSessionRepository;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,16 +26,19 @@ public class StaffAuthService {
     private final StaffAccountRepository accountRepository;
     private final StaffSessionRepository sessionRepository;
     private final PasswordEncoder passwordEncoder;
+    private final String adminRegistrationCode;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public StaffAuthService(
             StaffAccountRepository accountRepository,
             StaffSessionRepository sessionRepository,
-            PasswordEncoder passwordEncoder
+            PasswordEncoder passwordEncoder,
+            @Value("${app.admin-registration-code:}") String adminRegistrationCode
     ) {
         this.accountRepository = accountRepository;
         this.sessionRepository = sessionRepository;
         this.passwordEncoder = passwordEncoder;
+        this.adminRegistrationCode = adminRegistrationCode;
     }
 
     @Transactional
@@ -49,6 +54,27 @@ public class StaffAuthService {
         requireName(request, "преподавателя");
         StaffAccount teacher = createAccount(request, "TEACHER");
         return createSession(teacher);
+    }
+
+    @Transactional
+    public AuthResponse registerAdmin(AuthRequest request, String registrationCode) {
+        requireName(request, "администратора");
+        if (adminRegistrationCode == null || adminRegistrationCode.length() < 16) {
+            throw new AdminRegistrationException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Регистрация администраторов отключена. Настройте ADMIN_REGISTRATION_CODE на сервере."
+            );
+        }
+        if (registrationCode == null || !MessageDigest.isEqual(
+                adminRegistrationCode.getBytes(StandardCharsets.UTF_8),
+                registrationCode.getBytes(StandardCharsets.UTF_8)
+        )) {
+            throw new AdminRegistrationException(
+                    HttpStatus.FORBIDDEN,
+                    "Неверный код регистрации администратора."
+            );
+        }
+        return createSession(createAccount(request, "ADMIN"));
     }
 
     @Transactional
@@ -119,6 +145,19 @@ public class StaffAuthService {
     public static class InvalidCredentialsException extends RuntimeException {
         public InvalidCredentialsException(String message) {
             super(message);
+        }
+    }
+
+    public static class AdminRegistrationException extends RuntimeException {
+        private final HttpStatus status;
+
+        public AdminRegistrationException(HttpStatus status, String message) {
+            super(message);
+            this.status = status;
+        }
+
+        public HttpStatus getStatus() {
+            return status;
         }
     }
 }

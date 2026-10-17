@@ -7,6 +7,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import com.school.crm.service.StaffAuthService.AdminRegistrationException;
 import com.school.crm.service.StaffAuthService.InvalidCredentialsException;
 
 import java.util.ArrayList;
@@ -23,6 +24,16 @@ public class GlobalExceptionHandler {
                 ex.getMessage()
         );
         return new ResponseEntity<>(error, HttpStatus.UNAUTHORIZED);
+    }
+
+    @ExceptionHandler(AdminRegistrationException.class)
+    public ResponseEntity<ErrorResponse> handleAdminRegistrationFailure(AdminRegistrationException ex) {
+        ErrorResponse error = new ErrorResponse(
+                ex.getStatus().value(),
+                "Admin Registration Failed",
+                ex.getMessage()
+        );
+        return new ResponseEntity<>(error, ex.getStatus());
     }
 
     @ExceptionHandler(ResourceNotFoundException.class)
