@@ -7,8 +7,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import com.school.crm.service.StaffAuthService.AdminRegistrationException;
 import com.school.crm.service.StaffAuthService.InvalidCredentialsException;
+import com.school.crm.service.StaffAuthService.AdminRegistrationException;
 
 import java.util.ArrayList;
 import java.util.List;

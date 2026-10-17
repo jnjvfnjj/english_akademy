@@ -28,7 +28,8 @@ public class AdminUserController {
         return ResponseEntity.status(HttpStatus.CREATED).body(new StaffAccountResponse(
                 account.getEmail(),
                 account.getName(),
-                "Admin"
+                "Admin",
+                false
         ));
     }
 }

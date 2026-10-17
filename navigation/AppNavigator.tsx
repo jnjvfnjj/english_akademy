@@ -23,6 +23,7 @@ function TabNavigator() {
   const dispatch = useDispatch();
   const currentUser = useSelector((state: RootState) => state.auth.user);
   const isAdmin = currentUser?.role === 'Admin';
+  const isSuperAdmin = currentUser?.superAdmin === true;
 
   const handleLogout = async () => {
     const token = store.getState().auth.token;
@@ -110,7 +111,7 @@ function TabNavigator() {
       {isAdmin && (
         <Tab.Screen name="Database" component={DatabaseScreen} options={{ title: 'Управление СУБД', tabBarLabel: 'СУБД' }} />
       )}
-      {isAdmin && (
+      {isSuperAdmin && (
         <Tab.Screen name="Administrators" component={AdminUsersScreen} options={{ title: 'Управление администраторами', tabBarLabel: 'Админы' }} />
       )}
     </Tab.Navigator>

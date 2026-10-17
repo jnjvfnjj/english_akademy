@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 @Component
@@ -34,10 +35,19 @@ public class BearerTokenFilter extends OncePerRequestFilter {
         if (authorization != null && authorization.startsWith("Bearer ")) {
             StaffAccount account = authService.authenticate(authorization.substring("Bearer ".length()));
             if (account != null) {
+                List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+                if (StaffAuthService.isAdmin(account.getRole())) {
+                    authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
+                } else {
+                    authorities.add(new SimpleGrantedAuthority("ROLE_TEACHER"));
+                }
+                if ("SUPER_ADMIN".equals(account.getRole())) {
+                    authorities.add(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"));
+                }
                 var authentication = new UsernamePasswordAuthenticationToken(
                         account.getEmail(),
                         null,
-                        List.of(new SimpleGrantedAuthority("ROLE_" + account.getRole()))
+                        authorities
                 );
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }

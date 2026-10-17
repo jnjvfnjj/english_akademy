@@ -8,7 +8,7 @@ RUN gradle bootJar --no-daemon
 FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 
-COPY --from=build /app/build/libs/*.jar app.jar
+COPY --from=build /tmp/english-school-crm-build/libs/*.jar app.jar
 
 EXPOSE 8080
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=65.0", "-jar", "app.jar"]

@@ -83,9 +83,49 @@ public class StaffAuthService {
         return createAccount(request, "ADMIN");
     }
 
+    @Transactional
+    public StaffAccount createInitialSuperAdmin(AuthRequest request) {
+        requireName(request, "главного администратора");
+        requireSuperAdminPassword(request);
+        if (accountRepository.existsByRole("SUPER_ADMIN")) {
+            throw new IllegalStateException("Главный администратор уже создан.");
+        }
+        return createAccount(request, "SUPER_ADMIN");
+    }
+
+    @Transactional
+    public StaffAccount provisionSuperAdmin(AuthRequest request) {
+        requireName(request, "главного администратора");
+        requireSuperAdminPassword(request);
+        var existingSuperAdmin = accountRepository.findFirstByRole("SUPER_ADMIN");
+        if (existingSuperAdmin.isPresent()) {
+            return existingSuperAdmin.get();
+        }
+
+        String email = request.email().trim().toLowerCase();
+        StaffAccount existingAccount = accountRepository.findByEmailIgnoreCase(email).orElse(null);
+        if (existingAccount != null) {
+            if (!"ADMIN".equals(existingAccount.getRole())) {
+                throw new IllegalStateException(
+                        "Email главного администратора уже используется учётной записью без прав администратора."
+                );
+            }
+            existingAccount.setRole("SUPER_ADMIN");
+            return accountRepository.save(existingAccount);
+        }
+
+        return createAccount(request, "SUPER_ADMIN");
+    }
+
     private void requireName(AuthRequest request, String accountType) {
         if (request.name() == null || request.name().isBlank()) {
             throw new IllegalArgumentException("Укажите имя " + accountType + ".");
+        }
+    }
+
+    private void requireSuperAdminPassword(AuthRequest request) {
+        if (request.password() == null || request.password().length() < 12) {
+            throw new IllegalArgumentException("Пароль главного администратора должен содержать не менее 12 символов.");
         }
     }
 
@@ -128,8 +168,13 @@ public class StaffAuthService {
                 token,
                 account.getEmail(),
                 account.getName(),
-                "ADMIN".equals(account.getRole()) ? "Admin" : "Teacher"
+                isAdmin(account.getRole()) ? "Admin" : "Teacher",
+                "SUPER_ADMIN".equals(account.getRole())
         );
+    }
+
+    public static boolean isAdmin(String role) {
+        return "ADMIN".equals(role) || "SUPER_ADMIN".equals(role);
     }
 
     private String hashToken(String token) {
@@ -160,4 +205,5 @@ public class StaffAuthService {
             return status;
         }
     }
+
 }

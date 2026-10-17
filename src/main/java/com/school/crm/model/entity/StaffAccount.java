@@ -36,4 +36,5 @@ public class StaffAccount {
     public String getName() { return name; }
     public String getPasswordHash() { return passwordHash; }
     public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
 }

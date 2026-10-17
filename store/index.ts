@@ -53,7 +53,7 @@ export interface Transaction {
 }
 
 interface AuthState {
-  user: { email: string; name?: string; role: 'Admin' | 'Teacher' } | null;
+  user: { email: string; name?: string; role: 'Admin' | 'Teacher'; superAdmin: boolean } | null;
   token: string | null;
   isAuthenticated: boolean;
   loading: boolean;
@@ -135,8 +135,19 @@ const authSlice = createSlice({
     loading: false
   } as AuthState,
   reducers: {
-    login: (state, action: PayloadAction<{ email: string; name?: string; role: 'Admin' | 'Teacher'; token: string }>) => {
-      state.user = { email: action.payload.email, name: action.payload.name, role: action.payload.role };
+    login: (state, action: PayloadAction<{
+      email: string;
+      name?: string;
+      role: 'Admin' | 'Teacher';
+      superAdmin: boolean;
+      token: string;
+    }>) => {
+      state.user = {
+        email: action.payload.email,
+        name: action.payload.name,
+        role: action.payload.role,
+        superAdmin: action.payload.superAdmin
+      };
       state.token = action.payload.token;
       state.isAuthenticated = true;
     },

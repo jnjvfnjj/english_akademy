@@ -50,7 +50,8 @@ public class AuthController {
                 null,
                 account.getEmail(),
                 account.getName(),
-                "ADMIN".equals(account.getRole()) ? "Admin" : "Teacher"
+                StaffAuthService.isAdmin(account.getRole()) ? "Admin" : "Teacher",
+                "SUPER_ADMIN".equals(account.getRole())
         );
     }
 

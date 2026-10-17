@@ -13,6 +13,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -44,9 +45,9 @@ class StaffAuthServiceTest {
 
     @Test
     void createAdminAccountSavesAdminWithNormalizedEmailAndEncodedPassword() {
-        AuthRequest request = new AuthRequest("ADMIN@school.com", "password123", "  Alex Admin  ");
+        AuthRequest request = new AuthRequest("ADMIN@school.com", "password1234", "  Alex Admin  ");
         when(accountRepository.existsByEmailIgnoreCase("admin@school.com")).thenReturn(false);
-        when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
+        when(passwordEncoder.encode("password1234")).thenReturn("encoded-password");
         when(accountRepository.save(any(StaffAccount.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         StaffAccount account = authService.createAdminAccount(request);
@@ -60,7 +61,7 @@ class StaffAuthServiceTest {
 
     @Test
     void createAdminAccountRejectsExistingEmail() {
-        AuthRequest request = new AuthRequest("admin@school.com", "password123", "Alex Admin");
+        AuthRequest request = new AuthRequest("admin@school.com", "password1234", "Alex Admin");
         when(accountRepository.existsByEmailIgnoreCase("admin@school.com")).thenReturn(true);
 
         assertThrows(IllegalStateException.class, () -> authService.createAdminAccount(request));
@@ -87,24 +88,42 @@ class StaffAuthServiceTest {
     }
 
     @Test
+    void loginIncludesTheSuperAdminFlag() {
+        StaffAccount superAdmin = new StaffAccount(
+                "owner@school.com",
+                "School Owner",
+                "encoded-password",
+                "SUPER_ADMIN"
+        );
+        when(accountRepository.findByEmailIgnoreCase("owner@school.com"))
+                .thenReturn(java.util.Optional.of(superAdmin));
+        when(passwordEncoder.matches("password1234", "encoded-password")).thenReturn(true);
+
+        var response = authService.login(new AuthRequest("owner@school.com", "password1234", null));
+
+        assertEquals("Admin", response.role());
+        assertTrue(response.superAdmin());
+    }
+
+    @Test
     void registerAdminWithValidCodeCreatesAdminAndSession() {
-        AuthRequest request = new AuthRequest("ADMIN@school.com", "password123", "  Alex Admin  ");
+        AuthRequest request = new AuthRequest("ADMIN@school.com", "password1234", "Alex Admin");
         when(accountRepository.existsByEmailIgnoreCase("admin@school.com")).thenReturn(false);
-        when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
+        when(passwordEncoder.encode("password1234")).thenReturn("encoded-password");
         when(accountRepository.save(any(StaffAccount.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         var response = authService.registerAdmin(request, "test-registration-code-1234");
 
         assertEquals("admin@school.com", response.email());
-        assertEquals("Alex Admin", response.name());
         assertEquals("Admin", response.role());
+        assertEquals(false, response.superAdmin());
         verify(accountRepository).save(any(StaffAccount.class));
         verify(sessionRepository).save(any());
     }
 
     @Test
     void registerAdminRejectsInvalidCode() {
-        AuthRequest request = new AuthRequest("admin@school.com", "password123", "Alex Admin");
+        AuthRequest request = new AuthRequest("admin@school.com", "password1234", "Alex Admin");
 
         assertThrows(
                 StaffAuthService.AdminRegistrationException.class,
@@ -123,14 +142,68 @@ class StaffAuthServiceTest {
                 passwordEncoder,
                 ""
         );
-        AuthRequest request = new AuthRequest("admin@school.com", "password123", "Alex Admin");
 
         assertThrows(
                 StaffAuthService.AdminRegistrationException.class,
-                () -> serviceWithoutCode.registerAdmin(request, "test-registration-code-1234")
+                () -> serviceWithoutCode.registerAdmin(
+                        new AuthRequest("admin@school.com", "password1234", "Alex Admin"),
+                        "test-registration-code-1234"
+                )
         );
 
         verify(accountRepository, never()).save(any(StaffAccount.class));
         verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void provisionSuperAdminCreatesTheOnlyMainAdmin() {
+        AuthRequest request = new AuthRequest("ADMIN@school.com", "password1234", "  Alex Admin  ");
+        when(accountRepository.findFirstByRole("SUPER_ADMIN")).thenReturn(java.util.Optional.empty());
+        when(accountRepository.existsByEmailIgnoreCase("admin@school.com")).thenReturn(false);
+        when(passwordEncoder.encode("password1234")).thenReturn("encoded-password");
+        when(accountRepository.save(any(StaffAccount.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        StaffAccount account = authService.provisionSuperAdmin(request);
+
+        assertEquals("admin@school.com", account.getEmail());
+        assertEquals("Alex Admin", account.getName());
+        assertEquals("SUPER_ADMIN", account.getRole());
+        verify(accountRepository).save(any(StaffAccount.class));
+    }
+
+    @Test
+    void provisionSuperAdminPromotesConfiguredExistingAdmin() {
+        AuthRequest request = new AuthRequest("admin@school.com", "password1234", "Alex Admin");
+        StaffAccount existingAccount = new StaffAccount(
+                "admin@school.com",
+                "Alex Admin",
+                "existing-password-hash",
+                "ADMIN"
+        );
+        when(accountRepository.findFirstByRole("SUPER_ADMIN")).thenReturn(java.util.Optional.empty());
+        when(accountRepository.findByEmailIgnoreCase("admin@school.com"))
+                .thenReturn(java.util.Optional.of(existingAccount));
+        when(accountRepository.save(existingAccount)).thenReturn(existingAccount);
+
+        StaffAccount account = authService.provisionSuperAdmin(request);
+
+        assertEquals("SUPER_ADMIN", account.getRole());
+        assertEquals("existing-password-hash", account.getPasswordHash());
+        verify(passwordEncoder, never()).encode(any());
+        verify(accountRepository).save(existingAccount);
+    }
+
+    @Test
+    void createInitialSuperAdminRejectsASecondMainAdmin() {
+        when(accountRepository.existsByRole("SUPER_ADMIN")).thenReturn(true);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> authService.createInitialSuperAdmin(
+                        new AuthRequest("admin@school.com", "password1234", "Alex Admin")
+                )
+        );
+
+        verify(accountRepository, never()).save(any(StaffAccount.class));
     }
 }

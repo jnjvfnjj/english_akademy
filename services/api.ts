@@ -9,6 +9,7 @@ export interface ApiStaffUser {
   email: string;
   name?: string;
   role: 'Admin' | 'Teacher';
+  superAdmin: boolean;
 }
 
 export interface ApiStudent {
@@ -97,6 +98,12 @@ export async function apiRequest<T>(
     const body = await response.json().catch(() => null) as
       | { message?: string; error?: string }
       | null;
+    if (response.status === 405) {
+      throw new ApiError(
+        'Адрес EXPO_PUBLIC_API_URL ведёт не на API или там не развернут актуальный Java API. Укажите адрес сервера API с окончанием /api и заново соберите клиент.',
+        response.status
+      );
+    }
     const message = body?.message || body?.error ||
       (response.status === 401
         ? 'Сессия завершена. Войдите снова.'

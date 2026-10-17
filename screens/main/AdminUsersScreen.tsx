@@ -50,7 +50,7 @@ export default function AdminUsersScreen() {
         },
         token
       );
-      setSuccess(`Администратор ${account.name} (${account.email}) создан. Он может войти со своим email и паролем.`);
+      setSuccess(`Администратор ${account.name} (${account.email}) создан. Он сможет войти со своим email и паролем.`);
       setName('');
       setEmail('');
       setPassword('');
@@ -62,10 +62,10 @@ export default function AdminUsersScreen() {
     }
   };
 
-  if (currentUser?.role !== 'Admin') {
+  if (currentUser?.superAdmin !== true) {
     return (
       <View className="flex-1 items-center justify-center bg-slate-50 p-6">
-        <Text className="text-base font-bold text-slate-800">Доступ только для администратора.</Text>
+        <Text className="text-base font-bold text-slate-800">Создавать администраторов может только главный администратор.</Text>
       </View>
     );
   }
@@ -78,8 +78,8 @@ export default function AdminUsersScreen() {
             <ShieldCheck size={24} color="#4f46e5" />
           </View>
           <View className="flex-1">
-            <Text className="text-lg font-bold text-slate-900">Новый администратор</Text>
-            <Text className="text-xs text-slate-500">Создать учётную запись с полными правами</Text>
+            <Text className="text-lg font-bold text-slate-900">Управление администраторами</Text>
+            <Text className="text-xs text-slate-500">Создать учётную запись администратора</Text>
           </View>
         </View>
 

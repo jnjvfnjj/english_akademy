@@ -32,6 +32,7 @@ public class SecurityConfiguration {
                                 "/api/auth/register",
                                 "/api/auth/register/admin"
                         ).permitAll()
+                        .requestMatchers("/api/admin/users", "/api/admin/users/**").hasRole("SUPER_ADMIN")
                         .requestMatchers("/api/transactions/**", "/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )

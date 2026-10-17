@@ -102,7 +102,12 @@ function AppShell() {
       try {
         const savedToken = await loadAuthToken();
         if (!savedToken || cancelled) return;
-        const account = await apiRequest<{ email: string; name: string; role: 'Admin' | 'Teacher' }>(
+        const account = await apiRequest<{
+          email: string;
+          name: string;
+          role: 'Admin' | 'Teacher';
+          superAdmin: boolean;
+        }>(
           '/auth/me',
           {},
           savedToken

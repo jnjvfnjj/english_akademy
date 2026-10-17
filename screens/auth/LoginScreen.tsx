@@ -12,7 +12,6 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   
-  // Admin registration requires a secret configured on the backend.
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
@@ -262,7 +261,7 @@ export default function LoginScreen() {
               </Text>
               <Text className="text-xs text-slate-400 mb-4 text-center">
                 {registrationRole === 'admin'
-                  ? 'Для создания аккаунта нужен секретный код регистрации. Уже созданный через терминал аккаунт можно открыть на вкладке «Вход».'
+                  ? 'Для создания аккаунта нужен секретный код регистрации администратора.'
                   : 'Создайте учетную запись преподавателя для работы с группами и расписанием'}
               </Text>
 
