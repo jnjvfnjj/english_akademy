@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080/api';
+const configuredApiBaseUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '');
+const API_BASE_URL = configuredApiBaseUrl || (__DEV__ ? 'http://localhost:8080/api' : undefined);
 const TOKEN_KEY = 'english_school_staff_token';
 
 export interface ApiStaffUser {
@@ -71,6 +72,12 @@ export async function apiRequest<T>(
   options: RequestInit = {},
   token?: string
 ): Promise<T> {
+  if (!API_BASE_URL) {
+    throw new ApiError(
+      'Адрес API не настроен. Укажите EXPO_PUBLIC_API_URL в переменных окружения Vercel и пересоберите сайт.'
+    );
+  }
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
