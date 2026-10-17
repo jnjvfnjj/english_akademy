@@ -68,7 +68,10 @@ public class TransactionServiceImpl implements TransactionService {
 
         // Trivial/Non-Trivial Business Logic with Design Pattern Applications:
         // Case: Tuition Fee Purchase - demonstrates Strategy Pattern & Builder Pattern
-        if (student != null && "Income".equalsIgnoreCase(dto.getType()) && "Tuition".equalsIgnoreCase(dto.getCategory())) {
+        if (!Boolean.FALSE.equals(dto.getApplyToStudentBalance())
+                && student != null
+                && "Income".equalsIgnoreCase(dto.getType())
+                && "Tuition".equalsIgnoreCase(dto.getCategory())) {
             
             // 1. STRATEGY PATTERN: Select pricing policy dynamically based on request packaging tier
             PricingStrategy selectedStrategy;
@@ -151,6 +154,30 @@ public class TransactionServiceImpl implements TransactionService {
         return responseDto;
     }
 
+    @Override
+    @Transactional
+    public TransactionDto updateTransaction(Long id, TransactionDto dto) {
+        Transaction transaction = transactionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Transaction not found with ID: " + id));
+        Student student = dto.getStudentId() == null ? null : studentRepository.findById(dto.getStudentId())
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found with ID: " + dto.getStudentId()));
+        transaction.setStudent(student);
+        transaction.setAmount(dto.getAmount());
+        transaction.setType(dto.getType());
+        transaction.setCategory(dto.getCategory());
+        transaction.setDate(dto.getDate());
+        transaction.setDescription(dto.getDescription());
+        return convertToDto(transactionRepository.save(transaction));
+    }
+
+    @Override
+    @Transactional
+    public void deleteTransaction(Long id) {
+        Transaction transaction = transactionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Transaction not found with ID: " + id));
+        transactionRepository.delete(transaction);
+    }
+
     private TransactionDto convertToDto(Transaction transaction) {
         TransactionDto dto = new TransactionDto();
         dto.setId(transaction.getId());
@@ -163,6 +190,7 @@ public class TransactionServiceImpl implements TransactionService {
         dto.setCategory(transaction.getCategory());
         dto.setDate(transaction.getDate());
         dto.setDescription(transaction.getDescription());
+        dto.setApplyToStudentBalance(false);
         return dto;
     }
 }

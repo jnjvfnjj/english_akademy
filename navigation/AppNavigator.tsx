@@ -3,8 +3,9 @@ import { View, Text, TouchableOpacity, Platform } from 'react-native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSelector, useDispatch } from 'react-redux';
-import { RootState, logout } from '../store';
+import { RootState, logout, setSyncError, store } from '../store';
 import { Home, Users, Calendar, DollarSign, LogOut, BookOpen, Database } from 'lucide-react-native';
+import { ApiError, apiRequest, clearAuthToken } from '../services/api';
 
 // Import Screens
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -21,6 +22,22 @@ function TabNavigator() {
   const dispatch = useDispatch();
   const currentUser = useSelector((state: RootState) => state.auth.user);
   const isAdmin = currentUser?.role === 'Admin';
+
+  const handleLogout = async () => {
+    const token = store.getState().auth.token;
+    try {
+      if (token) await apiRequest<void>('/auth/logout', { method: 'POST' }, token);
+    } catch (error) {
+      dispatch(setSyncError(error instanceof ApiError ? error.message : 'Не удалось завершить серверную сессию.'));
+    } finally {
+      try {
+        await clearAuthToken();
+      } catch {
+        dispatch(setSyncError('Не удалось удалить сохранённую сессию с этого устройства.'));
+      }
+      dispatch(logout());
+    }
+  };
 
   return (
     <Tab.Navigator
@@ -66,7 +83,7 @@ function TabNavigator() {
         // Right header actions Logout trigger
         headerRight: () => (
           <TouchableOpacity 
-            onPress={() => dispatch(logout())}
+            onPress={() => void handleLogout()}
             className="mr-2 px-2.5 py-2 flex-row items-center bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
           >
             <LogOut size={14} color="#f43f5e" className="mr-1.5" />
@@ -87,7 +104,9 @@ function TabNavigator() {
       {isAdmin && (
         <Tab.Screen name="Billing" component={BillingScreen} options={{ title: 'Финансовый журнал', tabBarLabel: 'Журнал оплат' }} />
       )}
-      <Tab.Screen name="Database" component={DatabaseScreen} options={{ title: 'Управление СУБД', tabBarLabel: 'СУБД (SQL)' }} />
+      {isAdmin && (
+        <Tab.Screen name="Database" component={DatabaseScreen} options={{ title: 'Управление СУБД', tabBarLabel: 'СУБД' }} />
+      )}
     </Tab.Navigator>
   );
 }

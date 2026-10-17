@@ -1,4 +1,5 @@
-import { configureStore, createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { configureStore, createListenerMiddleware, createSlice, isAnyOf, PayloadAction } from '@reduxjs/toolkit';
+import { apiRequest, ApiError, ApiStudent, ApiTransaction, StudentDeletionNotice, createStudentRequest } from '../services/api';
 
 export interface Student {
   id: string;
@@ -53,6 +54,7 @@ export interface Transaction {
 
 interface AuthState {
   user: { email: string; name?: string; role: 'Admin' | 'Teacher' } | null;
+  token: string | null;
   isAuthenticated: boolean;
   loading: boolean;
 }
@@ -127,21 +129,20 @@ const getInitialTransactions = (): Transaction[] => loadState<Transaction[]>('tr
 const authSlice = createSlice({
   name: 'auth',
   initialState: {
-    user: { email: 'admin@school.com', role: 'Admin' },
-    isAuthenticated: true, // Auto-logged in for presentation speed & feedback
+    user: null,
+    token: null,
+    isAuthenticated: false,
     loading: false
   } as AuthState,
   reducers: {
-    login: (state, action: PayloadAction<{ email: string; role: 'Admin' | 'Teacher' }>) => {
-      state.user = action.payload;
-      state.isAuthenticated = true;
-    },
-    register: (state, action: PayloadAction<{ email: string; name?: string; role: 'Admin' | 'Teacher' }>) => {
-      state.user = action.payload;
+    login: (state, action: PayloadAction<{ email: string; name?: string; role: 'Admin' | 'Teacher'; token: string }>) => {
+      state.user = { email: action.payload.email, name: action.payload.name, role: action.payload.role };
+      state.token = action.payload.token;
       state.isAuthenticated = true;
     },
     logout: (state) => {
       state.user = null;
+      state.token = null;
       state.isAuthenticated = false;
     }
   }
@@ -169,6 +170,17 @@ const studentsSlice = createSlice({
       if (index !== -1) {
         state.list[index] = action.payload;
       }
+    },
+    replaceStudent: (state, action: PayloadAction<Student>) => {
+      const index = state.list.findIndex(s => s.id === action.payload.id || s.email === action.payload.email);
+      if (index !== -1) {
+        state.list[index] = action.payload;
+      } else {
+        state.list.unshift(action.payload);
+      }
+    },
+    replaceStudents: (state, action: PayloadAction<Student[]>) => {
+      state.list = action.payload;
     },
     deleteStudent: (state, action: PayloadAction<string>) => {
       state.list = state.list.filter(s => s.id !== action.payload);
@@ -267,22 +279,165 @@ const billingSlice = createSlice({
         state.transactions[index] = action.payload;
       }
     },
+    replaceTransaction: (state, action: PayloadAction<Transaction>) => {
+      const index = state.transactions.findIndex(t => t.id === action.payload.id || t.description === action.payload.description);
+      if (index !== -1) {
+        state.transactions[index] = action.payload;
+      } else {
+        state.transactions.unshift(action.payload);
+      }
+    },
+    replaceTransactions: (state, action: PayloadAction<Transaction[]>) => {
+      state.transactions = action.payload;
+    },
     deleteTransaction: (state, action: PayloadAction<string>) => {
       state.transactions = state.transactions.filter(t => t.id !== action.payload);
     }
   },
-  extraReducers: (builder) => {
-    builder.addCase(studentsSlice.actions.deleteStudent, (state, action) => {
-      state.transactions = state.transactions.filter(t => t.studentId !== action.payload);
-    });
+});
+
+const syncSlice = createSlice({
+  name: 'sync',
+  initialState: { error: null as string | null },
+  reducers: {
+    setSyncError: (state, action: PayloadAction<string | null>) => {
+      state.error = action.payload;
+    }
   }
 });
 
-export const { login, register, logout } = authSlice.actions;
-export const { addStudent, updateStudent, deleteStudent, adjustBalance } = studentsSlice.actions;
+const notificationsSlice = createSlice({
+  name: 'notifications',
+  initialState: { deletions: [] as StudentDeletionNotice[] },
+  reducers: {
+    setDeletionNotices: (state, action: PayloadAction<StudentDeletionNotice[]>) => {
+      state.deletions = action.payload;
+    }
+  }
+});
+
+export const { login, logout } = authSlice.actions;
+export const { addStudent, updateStudent, deleteStudent, adjustBalance, replaceStudent, replaceStudents } = studentsSlice.actions;
 export const { addGroup, updateGroup, deleteGroup } = groupsSlice.actions;
 export const { addLesson, updateLessonStatus, deleteLesson } = lessonsSlice.actions;
 export const { addTransaction, updateTransaction, deleteTransaction } = billingSlice.actions;
+export const { replaceTransaction, replaceTransactions } = billingSlice.actions;
+export const { setSyncError } = syncSlice.actions;
+export const { setDeletionNotices } = notificationsSlice.actions;
+
+const listenerMiddleware = createListenerMiddleware();
+let pendingStudentSync: Promise<void> = Promise.resolve();
+const localToRemoteStudentIds = new Map<string, string>();
+
+listenerMiddleware.startListening({
+  matcher: isAnyOf(addStudent, updateStudent, deleteStudent, adjustBalance),
+  effect: async (action, listenerApi) => {
+    const state = listenerApi.getState() as {
+      auth: { token: string | null };
+      students: { list: Student[] };
+    };
+    const token = state.auth.token;
+    if (!token) return;
+
+    pendingStudentSync = pendingStudentSync.then(async () => {
+      if (addStudent.match(action)) {
+        const localStudent = state.students.list.find(student => student.email === action.payload.email);
+        if (!localStudent) return;
+        const created = await apiRequest<ApiStudent>('/students', {
+          method: 'POST',
+          body: JSON.stringify(createStudentRequest(localStudent))
+        }, token);
+        localToRemoteStudentIds.set(String(localStudent.id), String(created.id));
+        listenerApi.dispatch(replaceStudent(mapApiStudent(created)));
+      } else if (updateStudent.match(action)) {
+        await apiRequest<ApiStudent>(`/students/${encodeURIComponent(action.payload.id)}`, {
+          method: 'PUT',
+          body: JSON.stringify(action.payload)
+        }, token);
+      } else if (deleteStudent.match(action)) {
+        await apiRequest<void>(`/students/${encodeURIComponent(action.payload)}`, {
+          method: 'DELETE'
+        }, token);
+      } else if (adjustBalance.match(action)) {
+        const { id, amount } = action.payload;
+        await apiRequest<void>(
+          `/students/${encodeURIComponent(id)}/adjust-balance?amount=${encodeURIComponent(amount)}`,
+          { method: 'POST' },
+          token
+        );
+      }
+    }).catch((error: unknown) => {
+      listenerApi.dispatch(setSyncError(
+        error instanceof ApiError ? error.message : 'Не удалось сохранить изменения на сервере.'
+      ));
+    });
+
+    await pendingStudentSync;
+  }
+});
+
+listenerMiddleware.startListening({
+  matcher: isAnyOf(addTransaction, updateTransaction, deleteTransaction),
+  effect: async (action, listenerApi) => {
+    const state = listenerApi.getState() as {
+      auth: { token: string | null; user: { role: 'Admin' | 'Teacher' } | null };
+      students: { list: Student[] };
+      billing: { transactions: Transaction[] };
+    };
+    if (!state.auth.token || state.auth.user?.role !== 'Admin') return;
+    const token = state.auth.token;
+
+    pendingStudentSync = pendingStudentSync.then(async () => {
+      if (addTransaction.match(action)) {
+        const localTransaction = (listenerApi.getState() as typeof state).billing.transactions.find(
+          transaction => transaction.description === action.payload.description
+            && transaction.date === action.payload.date
+            && transaction.amount === action.payload.amount
+            && transaction.type === action.payload.type
+            && transaction.category === action.payload.category
+        );
+        if (!localTransaction) return;
+        const sourceStudentId = localTransaction.studentId;
+        const student = sourceStudentId
+          ? state.students.list.find(candidate => candidate.id === sourceStudentId)
+          : undefined;
+        const apiStudentId = sourceStudentId
+          ? localToRemoteStudentIds.get(sourceStudentId) ||
+            (student && /^\d+$/.test(student.id) ? student.id : undefined)
+          : undefined;
+        const created = await apiRequest<ApiTransaction>('/transactions', {
+          method: 'POST',
+          body: JSON.stringify({
+            ...localTransaction,
+            id: undefined,
+            studentId: apiStudentId,
+            applyToStudentBalance: !localTransaction.description.startsWith('Зарегистрирован студент ')
+          })
+        }, token);
+        listenerApi.dispatch(replaceTransaction(mapApiTransaction(created)));
+      } else if (updateTransaction.match(action)) {
+        const updated = await apiRequest<ApiTransaction>(
+          `/transactions/${encodeURIComponent(action.payload.id)}`,
+          {
+            method: 'PUT',
+            body: JSON.stringify(action.payload)
+          },
+          token
+        );
+        listenerApi.dispatch(replaceTransaction(mapApiTransaction(updated)));
+      } else if (deleteTransaction.match(action)) {
+        await apiRequest<void>(`/transactions/${encodeURIComponent(action.payload)}`, {
+          method: 'DELETE'
+        }, token);
+      }
+    }).catch((error: unknown) => {
+      listenerApi.dispatch(setSyncError(
+        error instanceof ApiError ? error.message : 'Не удалось сохранить финансовую операцию на сервере.'
+      ));
+    });
+    await pendingStudentSync;
+  }
+});
 
 export const store = configureStore({
   reducer: {
@@ -290,8 +445,11 @@ export const store = configureStore({
     students: studentsSlice.reducer,
     groups: groupsSlice.reducer,
     lessons: lessonsSlice.reducer,
-    billing: billingSlice.reducer
-  }
+    billing: billingSlice.reducer,
+    sync: syncSlice.reducer,
+    notifications: notificationsSlice.reducer
+  },
+  middleware: (getDefaultMiddleware) => getDefaultMiddleware().prepend(listenerMiddleware.middleware)
 });
 
 // Subscribe to store updates to persist the CRM data automatically
@@ -305,3 +463,32 @@ store.subscribe(() => {
 
 export type RootState = ReturnType<typeof store.getState>;
 export type AppDispatch = typeof store.dispatch;
+
+export function mapApiStudent(student: ApiStudent): Student {
+  return {
+    id: String(student.id),
+    name: student.name,
+    email: student.email,
+    phone: student.phone || '',
+    level: student.level || '',
+    balance: student.balance,
+    totalClasses: student.totalClasses,
+    totalPaid: student.totalPaid,
+    ageGroup: student.ageGroup,
+    status: student.status,
+    notes: student.notes
+  };
+}
+
+export function mapApiTransaction(transaction: ApiTransaction): Transaction {
+  return {
+    id: String(transaction.id),
+    studentId: transaction.studentId === undefined ? undefined : String(transaction.studentId),
+    studentName: transaction.studentName,
+    amount: transaction.amount,
+    type: transaction.type,
+    category: transaction.category,
+    date: transaction.date,
+    description: transaction.description
+  };
+}

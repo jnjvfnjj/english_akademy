@@ -48,7 +48,7 @@ export default function BillingScreen() {
   }
 
   // Filter transactions to only active existing records in database
-  const activeTransactions = transactions.filter(t => !t.studentId || students.some(s => s.id === t.studentId));
+  const activeTransactions = transactions;
 
   // Financial aggregates
   const incomeTrans = activeTransactions.filter(t => t.type === 'Income');
@@ -247,7 +247,8 @@ export default function BillingScreen() {
                 <TouchableOpacity
                   onPress={() => openEditModal(tx)}
                   className="p-2 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 rounded-lg shadow-sm"
-                  title="Редактировать запись"
+                  accessibilityRole="button"
+                  accessibilityLabel="Редактировать запись"
                 >
                   <Edit size={15} color="#4f46e5" />
                 </TouchableOpacity>
@@ -256,7 +257,8 @@ export default function BillingScreen() {
                 <TouchableOpacity
                   onPress={() => handleDeleteTransaction(tx.id)}
                   className="p-2 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg shadow-sm"
-                  title="Удалить запись"
+                  accessibilityRole="button"
+                  accessibilityLabel="Удалить запись"
                 >
                   <Trash2 size={15} color="#e11d48" />
                 </TouchableOpacity>

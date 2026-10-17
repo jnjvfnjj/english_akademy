@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
 
 import java.util.List;
 
@@ -22,24 +23,33 @@ public class StudentController {
     }
 
     @GetMapping
-    public ResponseEntity<List<StudentDto>> getAllStudents() {
-        return ResponseEntity.ok(studentService.getAllStudents());
+    public ResponseEntity<List<StudentDto>> getAllStudents(Authentication authentication) {
+        return ResponseEntity.ok(studentService.getAllStudents().stream()
+                .map(student -> hideFinancialFieldsForTeachers(student, authentication))
+                .toList());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<StudentDto> getStudentById(@PathVariable Long id) {
-        return ResponseEntity.ok(studentService.getStudentById(id));
+    public ResponseEntity<StudentDto> getStudentById(@PathVariable Long id, Authentication authentication) {
+        return ResponseEntity.ok(hideFinancialFieldsForTeachers(studentService.getStudentById(id), authentication));
     }
 
     @PostMapping
-    public ResponseEntity<StudentDto> createStudent(@Valid @RequestBody StudentDto studentDto) {
+    public ResponseEntity<StudentDto> createStudent(
+            @Valid @RequestBody StudentDto studentDto,
+            Authentication authentication
+    ) {
         StudentDto created = studentService.createStudent(studentDto);
-        return new ResponseEntity<>(created, HttpStatus.CREATED);
+        return new ResponseEntity<>(hideFinancialFieldsForTeachers(created, authentication), HttpStatus.CREATED);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<StudentDto> updateStudent(@PathVariable Long id, @Valid @RequestBody StudentDto studentDto) {
-        return ResponseEntity.ok(studentService.updateStudent(id, studentDto));
+    public ResponseEntity<StudentDto> updateStudent(
+            @PathVariable Long id,
+            @Valid @RequestBody StudentDto studentDto,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(hideFinancialFieldsForTeachers(studentService.updateStudent(id, studentDto), authentication));
     }
 
     @DeleteMapping("/{id}")
@@ -53,5 +63,12 @@ public class StudentController {
     public ResponseEntity<Void> adjustStudentBalance(@PathVariable Long id, @RequestParam int amount) {
         studentService.adjustStudentBalance(id, amount);
         return ResponseEntity.ok().build();
+    }
+
+    private StudentDto hideFinancialFieldsForTeachers(StudentDto student, Authentication authentication) {
+        if (authentication.getAuthorities().stream().noneMatch(authority -> authority.getAuthority().equals("ROLE_ADMIN"))) {
+            student.setTotalPaid(0);
+        }
+        return student;
     }
 }

@@ -3,6 +3,8 @@ package com.school.crm.service.impl;
 import com.school.crm.model.dto.StudentDto;
 import com.school.crm.model.entity.Student;
 import com.school.crm.repository.StudentRepository;
+import com.school.crm.repository.StudentDeletionNoticeRepository;
+import com.school.crm.repository.TransactionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +24,12 @@ public class StudentServiceImplTest {
 
     @Mock
     private StudentRepository studentRepository;
+
+    @Mock
+    private StudentDeletionNoticeRepository deletionNoticeRepository;
+
+    @Mock
+    private TransactionRepository transactionRepository;
 
     @Mock
     private ApplicationEventPublisher eventPublisher;

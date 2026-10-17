@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { useDispatch } from 'react-redux';
-import { login, register } from '../../store';
-import { LogIn, BookOpen, UserCheck, Shield, UserPlus, CheckCircle2, AlertCircle } from 'lucide-react-native';
+import { login, setSyncError } from '../../store';
+import { LogIn, BookOpen, UserCheck, UserPlus, CheckCircle2, AlertCircle } from 'lucide-react-native';
+import { ApiError, apiRequest, ApiStaffUser, saveAuthToken } from '../../services/api';
 
 export default function LoginScreen() {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   
   // Login form states
-  const [email, setEmail] = useState('admin@school.com');
-  const [password, setPassword] = useState('password');
-  const [role, setRole] = useState<'Admin' | 'Teacher'>('Admin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   
   // Register form states (strictly for teachers; admin is unique and cannot be registered)
   const [regName, setRegName] = useState('');
@@ -22,17 +22,32 @@ export default function LoginScreen() {
 
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const dispatch = useDispatch();
 
-  const handleLogin = () => {
-    if (!email || !password) {
+  const handleLogin = async () => {
+    if (!email.trim() || !password) {
       setError('Пожалуйста, заполните все обязательные поля');
       return;
     }
-    dispatch(login({ email, role }));
+    setSubmitting(true);
+    setError('');
+    try {
+      const response = await apiRequest<ApiStaffUser & { token: string }>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email: email.trim(), password })
+      });
+      await saveAuthToken(response.token);
+      dispatch(setSyncError(null));
+      dispatch(login(response));
+    } catch (error) {
+      setError(error instanceof ApiError ? error.message : 'Не удалось выполнить вход.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (!regName.trim()) {
       setError('Пожалуйста, укажите ваше имя и фамилию');
       return;
@@ -51,16 +66,25 @@ export default function LoginScreen() {
     }
 
     setError('');
-    setSuccessMsg('Регистрация преподавателя завершена! Входим в систему...');
-    
-    setTimeout(() => {
-      // Role is strictly Teacher (admin cannot be registered)
-      dispatch(register({ 
-        email: regEmail.trim(), 
-        name: regName.trim(), 
-        role: 'Teacher' 
-      }));
-    }, 600);
+    setSubmitting(true);
+    try {
+      const response = await apiRequest<ApiStaffUser & { token: string }>('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: regEmail.trim(),
+          name: regName.trim(),
+          password: regPassword
+        })
+      });
+      await saveAuthToken(response.token);
+      dispatch(setSyncError(null));
+      setSuccessMsg('Регистрация завершена. Выполняется вход...');
+      dispatch(login(response));
+    } catch (error) {
+      setError(error instanceof ApiError ? error.message : 'Не удалось зарегистрировать преподавателя.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -160,39 +184,6 @@ export default function LoginScreen() {
                 Авторизация в системе
               </Text>
 
-              {/* Role Tab Selector for existing accounts */}
-              <View className="flex flex-row bg-slate-100 rounded-lg p-1 mb-5">
-                <TouchableOpacity
-                  onPress={() => {
-                    setRole('Admin');
-                    setEmail('admin@school.com');
-                  }}
-                  className={`flex-1 py-2 flex-row justify-center items-center rounded-md ${
-                    role === 'Admin' ? 'bg-white shadow' : ''
-                  }`}
-                >
-                  <Shield size={16} color={role === 'Admin' ? '#4f46e5' : '#64748b'} className="mr-2" />
-                  <Text className={`text-xs ${role === 'Admin' ? 'text-slate-800 font-bold' : 'text-slate-500 font-medium'}`}>
-                    Администратор
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={() => {
-                    setRole('Teacher');
-                    setEmail('teacher@school.com');
-                  }}
-                  className={`flex-1 py-2 flex-row justify-center items-center rounded-md ${
-                    role === 'Teacher' ? 'bg-white shadow' : ''
-                  }`}
-                >
-                  <UserCheck size={16} color={role === 'Teacher' ? '#4f46e5' : '#64748b'} className="mr-2" />
-                  <Text className={`text-xs ${role === 'Teacher' ? 'text-slate-800 font-bold' : 'text-slate-500 font-medium'}`}>
-                    Преподаватель
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
               {/* Email Field */}
               <View className="mb-4">
                 <Text className="text-xs font-semibold text-slate-600 uppercase mb-1.5">
@@ -204,7 +195,7 @@ export default function LoginScreen() {
                     setEmail(text);
                     setError('');
                   }}
-                  placeholder="admin@school.com"
+                  placeholder="name@school.com"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   className="w-full bg-slate-50 border border-slate-300 rounded-lg px-4 py-3 text-slate-800 text-sm focus:border-indigo-500 focus:bg-white"
@@ -222,7 +213,7 @@ export default function LoginScreen() {
                     setPassword(text);
                     setError('');
                   }}
-                  placeholder="••••••••"
+                  placeholder="Введите пароль"
                   secureTextEntry
                   className="w-full bg-slate-50 border border-slate-300 rounded-lg px-4 py-3 text-slate-800 text-sm focus:border-indigo-500 focus:bg-white"
                 />
@@ -230,19 +221,17 @@ export default function LoginScreen() {
 
               {/* Sign In button */}
               <TouchableOpacity
-                onPress={handleLogin}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 py-3.5 rounded-lg flex-row justify-center items-center shadow-md shadow-indigo-200"
+                onPress={() => void handleLogin()}
+                disabled={submitting}
+                className={`w-full py-3.5 rounded-lg flex-row justify-center items-center shadow-md shadow-indigo-200 ${submitting ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}
               >
                 <LogIn size={18} color="#ffffff" className="mr-2" />
                 <Text className="text-white text-sm font-bold tracking-wide">
-                  Войти как {role === 'Admin' ? 'Администратор' : 'Преподаватель'}
+                  {submitting ? 'Подключение...' : 'Войти'}
                 </Text>
               </TouchableOpacity>
 
               <View className="mt-6 pt-4 border-t border-slate-100 flex items-center">
-                <Text className="text-xs text-slate-400 text-center">
-                  Быстрый вход: admin@school.com (любой пароль)
-                </Text>
                 <TouchableOpacity 
                   onPress={() => setActiveTab('register')}
                   className="mt-2"
@@ -368,12 +357,13 @@ export default function LoginScreen() {
 
               {/* Submit Registration button */}
               <TouchableOpacity
-                onPress={handleRegister}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 py-3.5 rounded-lg flex-row justify-center items-center shadow-md shadow-indigo-200 mt-1"
+                onPress={() => void handleRegister()}
+                disabled={submitting}
+                className={`w-full py-3.5 rounded-lg flex-row justify-center items-center shadow-md shadow-indigo-200 mt-1 ${submitting ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}
               >
                 <UserPlus size={18} color="#ffffff" className="mr-2" />
                 <Text className="text-white text-sm font-bold tracking-wide">
-                  Зарегистрироваться как преподаватель
+                  {submitting ? 'Подключение...' : 'Зарегистрироваться как преподаватель'}
                 </Text>
               </TouchableOpacity>
 

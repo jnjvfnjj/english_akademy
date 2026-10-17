@@ -30,6 +30,7 @@ export default function StudentDetailModal({
 
   // If student updated in store, find latest version
   const currentStudent = student ? allStudents.find(s => s.id === student.id) || student : null;
+  const isAdmin = useSelector((state: RootState) => state.auth.user?.role === 'Admin');
 
   // Local state for fast hours top-up modal or notes editing
   const [showTopup, setShowTopup] = useState(false);
@@ -210,7 +211,7 @@ export default function StudentDetailModal({
             </View>
 
             {/* Quick Metrics */}
-            <View className="grid grid-cols-3 gap-3 flex-row">
+            <View className={`grid ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'} gap-3 flex-row`}>
               <View className="flex-1 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
                 <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Остаток уроков</Text>
                 <Text className={`text-2xl font-black mt-1 ${currentStudent.balance > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
@@ -231,15 +232,17 @@ export default function StudentDetailModal({
                 </Text>
               </View>
 
-              <View className="flex-1 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-                <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Всего оплачено</Text>
-                <Text className="text-2xl font-black text-slate-900 mt-1">
-                  ${currentStudent.totalPaid}
-                </Text>
-                <Text className="text-[10px] text-slate-400 mt-1">
-                  Суммарный доход
-                </Text>
-              </View>
+              {isAdmin && (
+                <View className="flex-1 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                  <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Всего оплачено</Text>
+                  <Text className="text-2xl font-black text-slate-900 mt-1">
+                    ${currentStudent.totalPaid}
+                  </Text>
+                  <Text className="text-[10px] text-slate-400 mt-1">
+                    Суммарный доход
+                  </Text>
+                </View>
+              )}
             </View>
 
             {/* Status Quick Control Notice */}
@@ -345,7 +348,7 @@ export default function StudentDetailModal({
             </View>
 
             {/* Quick Top-up Expandable Box */}
-            {showTopup && (
+            {isAdmin && showTopup && (
               <View className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl">
                 <Text className="text-xs font-bold text-emerald-900 mb-2">
                   Пополнить баланс академических часов
@@ -387,13 +390,15 @@ export default function StudentDetailModal({
 
           {/* Action Bar Footer */}
           <View className="p-4 bg-slate-50 border-t border-slate-200 flex-row justify-between items-center gap-2 flex-wrap">
-            <TouchableOpacity
-              onPress={() => setShowTopup(!showTopup)}
-              className="bg-emerald-600 hover:bg-emerald-700 px-3.5 py-2 rounded-lg flex-row items-center gap-1.5 shadow-xs"
-            >
-              <ShoppingCart size={14} color="#ffffff" />
-              <Text className="text-xs font-bold text-white">Пополнить часы</Text>
-            </TouchableOpacity>
+            {isAdmin && (
+              <TouchableOpacity
+                onPress={() => setShowTopup(!showTopup)}
+                className="bg-emerald-600 hover:bg-emerald-700 px-3.5 py-2 rounded-lg flex-row items-center gap-1.5 shadow-xs"
+              >
+                <ShoppingCart size={14} color="#ffffff" />
+                <Text className="text-xs font-bold text-white">Пополнить часы</Text>
+              </TouchableOpacity>
+            )}
 
             <View className="flex-row gap-2">
               <TouchableOpacity

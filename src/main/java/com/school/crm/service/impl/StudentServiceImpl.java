@@ -4,8 +4,12 @@ import com.school.crm.design.observer.StudentBalanceEvent;
 import com.school.crm.exception.ResourceNotFoundException;
 import com.school.crm.model.dto.StudentDto;
 import com.school.crm.model.entity.Student;
+import com.school.crm.model.entity.StudentDeletionNotice;
 import com.school.crm.repository.StudentRepository;
+import com.school.crm.repository.StudentDeletionNoticeRepository;
+import com.school.crm.repository.TransactionRepository;
 import com.school.crm.service.StudentService;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -20,11 +24,20 @@ public class StudentServiceImpl implements StudentService {
 
     private static final Logger log = LoggerFactory.getLogger(StudentServiceImpl.class);
     private final StudentRepository studentRepository;
+    private final StudentDeletionNoticeRepository deletionNoticeRepository;
+    private final TransactionRepository transactionRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     // Constructor-based Dependency Injection only! (Mandatory rule 3.3)
-    public StudentServiceImpl(StudentRepository studentRepository, ApplicationEventPublisher eventPublisher) {
+    public StudentServiceImpl(
+            StudentRepository studentRepository,
+            StudentDeletionNoticeRepository deletionNoticeRepository,
+            TransactionRepository transactionRepository,
+            ApplicationEventPublisher eventPublisher
+    ) {
         this.studentRepository = studentRepository;
+        this.deletionNoticeRepository = deletionNoticeRepository;
+        this.transactionRepository = transactionRepository;
         this.eventPublisher = eventPublisher;
     }
 
@@ -95,8 +108,22 @@ public class StudentServiceImpl implements StudentService {
     public void deleteStudent(Long id) {
         Student student = studentRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with ID: " + id));
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        String deletedBy = authentication == null ? "unknown" : authentication.getName();
+        StudentDeletionNotice notice = new StudentDeletionNotice(
+                student.getId(),
+                student.getName(),
+                student.getEmail(),
+                deletedBy
+        );
+        transactionRepository.findByStudentId(id).forEach(transaction -> {
+            transaction.setStudent(null);
+            student.getTransactions().remove(transaction);
+            transactionRepository.save(transaction);
+        });
         studentRepository.delete(student);
-        log.info("[Service Log] Deleted student ID: {}", id);
+        deletionNoticeRepository.save(notice);
+        log.info("Student {} deleted by {}", id, deletedBy);
     }
 
     @Override

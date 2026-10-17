@@ -1,0 +1,127 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080/api';
+const TOKEN_KEY = 'english_school_staff_token';
+
+export interface ApiStaffUser {
+  email: string;
+  name?: string;
+  role: 'Admin' | 'Teacher';
+}
+
+export interface ApiStudent {
+  id: number | string;
+  name: string;
+  email: string;
+  phone?: string;
+  level?: string;
+  balance: number;
+  totalClasses: number;
+  totalPaid: number;
+  ageGroup: 'Kids' | 'Teens' | 'Adults';
+  status: 'Active' | 'On Hold' | 'Completed';
+  notes?: string;
+}
+
+export function createStudentRequest(student: Omit<ApiStudent, 'id'> | ApiStudent): Omit<ApiStudent, 'id'> {
+  return {
+    name: student.name,
+    email: student.email,
+    phone: student.phone,
+    level: student.level,
+    balance: student.balance,
+    totalClasses: student.totalClasses,
+    totalPaid: student.totalPaid,
+    ageGroup: student.ageGroup,
+    status: student.status,
+    notes: student.notes,
+  };
+}
+
+export interface StudentDeletionNotice {
+  id: number;
+  deletedStudentId: number;
+  studentName: string;
+  studentEmail: string;
+  deletedBy: string;
+  deletedAt: string;
+}
+
+export interface ApiTransaction {
+  id: number | string;
+  studentId?: number | string;
+  studentName?: string;
+  amount: number;
+  type: 'Income' | 'Expense';
+  category: 'Tuition' | 'Salary' | 'Materials' | 'Rent' | 'Other';
+  date: string;
+  description: string;
+}
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export async function apiRequest<T>(
+  path: string,
+  options: RequestInit = {},
+  token?: string
+): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers: {
+        Accept: 'application/json',
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  } catch {
+    throw new ApiError(`Не удалось подключиться к серверу ${API_BASE_URL}.`);
+  }
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as
+      | { message?: string; error?: string }
+      | null;
+    const message = body?.message || body?.error ||
+      (response.status === 401
+        ? 'Сессия завершена. Войдите снова.'
+        : `Запрос к серверу завершился ошибкой (${response.status}).`);
+    throw new ApiError(message, response.status);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+  return response.json() as Promise<T>;
+}
+
+export async function saveAuthToken(token: string): Promise<void> {
+  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+    localStorage.setItem(TOKEN_KEY, token);
+    return;
+  }
+  await AsyncStorage.setItem(TOKEN_KEY, token);
+}
+
+export async function loadAuthToken(): Promise<string | null> {
+  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+    return localStorage.getItem(TOKEN_KEY);
+  }
+  return AsyncStorage.getItem(TOKEN_KEY);
+}
+
+export async function clearAuthToken(): Promise<void> {
+  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+    localStorage.removeItem(TOKEN_KEY);
+    return;
+  }
+  await AsyncStorage.removeItem(TOKEN_KEY);
+}

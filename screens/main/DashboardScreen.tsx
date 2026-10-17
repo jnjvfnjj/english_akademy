@@ -71,7 +71,7 @@ export default function DashboardScreen({ navigation }: any) {
   const scheduledLessonsList = lessons.filter(l => l.status === 'Scheduled');
   const pendingLessons = scheduledLessonsList.length;
 
-  const activeTransactions = transactions.filter(t => !t.studentId || students.some(s => s.id === t.studentId));
+  const activeTransactions = transactions;
   const totalIncome = activeTransactions
     .filter(t => t.type === 'Income')
     .reduce((sum, t) => sum + t.amount, 0);
@@ -103,7 +103,7 @@ export default function DashboardScreen({ navigation }: any) {
     }));
 
     const bal = parseInt(studentBalance, 10) || 0;
-    if (bal > 0) {
+    if (isAdmin && bal > 0) {
       dispatch(addTransaction({
         studentName: studentName.trim(),
         amount: bal * 25,
@@ -289,11 +289,13 @@ export default function DashboardScreen({ navigation }: any) {
         <View className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex-row items-center justify-between">
           <View>
             <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Общая выручка</Text>
-            <Text className="text-3xl font-extrabold text-slate-900 mt-2">${totalIncome.toLocaleString()}</Text>
+            <Text className="text-3xl font-extrabold text-slate-900 mt-2">
+              {isAdmin ? `$${totalIncome.toLocaleString()}` : 'Недоступно'}
+            </Text>
             <View className="flex-row items-center mt-2.5">
               <Plus size={14} color="#10b981" />
               <Text className="text-xs font-medium text-emerald-600 ml-1">
-                {isAdmin ? 'Журнал оплат доступен' : 'Только для администратора'}
+                {isAdmin ? 'Журнал оплат доступен' : 'Доступно администратору'}
               </Text>
             </View>
           </View>
@@ -307,7 +309,7 @@ export default function DashboardScreen({ navigation }: any) {
           <View>
             <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Чистый баланс</Text>
             <Text className={`text-3xl font-extrabold mt-2 ${profitLoss >= 0 ? "text-slate-900" : "text-rose-600"}`}>
-              ${profitLoss.toLocaleString()}
+              {isAdmin ? `$${profitLoss.toLocaleString()}` : 'Недоступно'}
             </Text>
             <View className="flex-row items-center mt-2.5">
               <ArrowUpRight size={14} color="#64748b" />

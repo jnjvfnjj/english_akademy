@@ -28,6 +28,7 @@ public class TransactionDto {
 
     // Optional for specifying custom pricing package calculations inside service
     private String pricingTier; // e.g., REGULAR, STANDARD_PACKAGE, VIP_GOLD
+    private Boolean applyToStudentBalance;
 
     public TransactionDto() {}
 
@@ -58,4 +59,7 @@ public class TransactionDto {
 
     public String getPricingTier() { return pricingTier; }
     public void setPricingTier(String pricingTier) { this.pricingTier = pricingTier; }
+
+    public Boolean getApplyToStudentBalance() { return applyToStudentBalance; }
+    public void setApplyToStudentBalance(Boolean applyToStudentBalance) { this.applyToStudentBalance = applyToStudentBalance; }
 }

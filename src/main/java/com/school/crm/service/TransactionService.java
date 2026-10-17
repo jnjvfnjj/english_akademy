@@ -7,4 +7,6 @@ public interface TransactionService {
     List<TransactionDto> getAllTransactions();
     List<TransactionDto> getTransactionsByStudent(Long studentId);
     TransactionDto createTransaction(TransactionDto transactionDto);
+    TransactionDto updateTransaction(Long id, TransactionDto transactionDto);
+    void deleteTransaction(Long id);
 }

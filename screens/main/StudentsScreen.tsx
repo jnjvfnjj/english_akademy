@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, Modal } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
-import { RootState, Student, addStudent, updateStudent, deleteStudent, adjustBalance, addTransaction } from '../../store';
+import { RootState, Student, addStudent, updateStudent, deleteStudent, addTransaction } from '../../store';
 import StudentStatusBadge from '../../components/StudentStatusBadge';
 import { Search, UserCheck, Plus, Trash2, Edit, Award, ShoppingCart, MessageSquare, AlertCircle, X, Check } from 'lucide-react-native';
 
 export default function StudentsScreen({ route }: any) {
   const dispatch = useDispatch();
   const students = useSelector((state: RootState) => state.students.list);
+  const isAdmin = useSelector((state: RootState) => state.auth.user?.role === 'Admin');
 
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'All' | 'Active' | 'On Hold' | 'Completed'>('All');
@@ -105,7 +106,7 @@ export default function StudentsScreen({ route }: any) {
       notes: regNotes || 'Регистрация студента через Реестр студентов'
     }));
 
-    if (bal > 0) {
+    if (isAdmin && bal > 0) {
       dispatch(addTransaction({
         studentName: regName.trim(),
         amount: bal * 25,
@@ -137,8 +138,6 @@ export default function StudentsScreen({ route }: any) {
     if (hours <= 0) return;
 
     const totalCost = hours * 25;
-    dispatch(adjustBalance({ id: selectedStudent.id, amount: hours }));
-    
     // Add billing transaction record
     dispatch(addTransaction({
       studentId: selectedStudent.id,
@@ -295,9 +294,11 @@ export default function StudentsScreen({ route }: any) {
                 <Text className={`text-sm font-black ${student.balance > 0 ? "text-slate-900" : "text-rose-600"}`}>
                   {student.balance} ч. осталось
                 </Text>
-                <Text className="text-xs text-slate-400 mt-1">
-                  Оплачено: ${student.totalPaid}
-                </Text>
+                {isAdmin && (
+                  <Text className="text-xs text-slate-400 mt-1">
+                    Оплачено: ${student.totalPaid}
+                  </Text>
+                )}
               </View>
             </TouchableOpacity>
           ))}
@@ -350,14 +351,16 @@ export default function StudentsScreen({ route }: any) {
                 </Text>
               </View>
 
-              <View className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                <Text className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Всего оплачено</Text>
-                <Text className="text-base font-black text-slate-800 mt-1">${selectedStudent.totalPaid}</Text>
-              </View>
+              {isAdmin && (
+                <View className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                  <Text className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Всего оплачено</Text>
+                  <Text className="text-base font-black text-slate-800 mt-1">${selectedStudent.totalPaid}</Text>
+                </View>
+              )}
             </View>
 
             {/* Actions for hours balance */}
-            <View className="space-y-3">
+            {isAdmin && <View className="space-y-3">
               <Text className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Биллинг и пакеты часов</Text>
               
               <TouchableOpacity 
@@ -367,7 +370,7 @@ export default function StudentsScreen({ route }: any) {
                 <ShoppingCart size={16} color="#ffffff" className="mr-2" />
                 <Text className="text-white text-xs font-bold">Пополнить баланс часов</Text>
               </TouchableOpacity>
-            </View>
+            </View>}
 
             {/* Quick Status / Delete Actions Container */}
             <View className="gap-2.5">
@@ -615,7 +618,7 @@ export default function StudentsScreen({ route }: any) {
       </Modal>
 
       {/* 3. BUY HOURS MODULE MODAL */}
-      <Modal animationType="slide" transparent={true} visible={buyHoursModal} onRequestClose={() => setBuyHoursModal(false)}>
+      <Modal animationType="slide" transparent={true} visible={isAdmin && buyHoursModal} onRequestClose={() => setBuyHoursModal(false)}>
         <View className="flex-1 justify-center items-center bg-black/50 p-4">
           <View className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl text-center items-center max-h-[90vh]">
             <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ alignItems: 'center', width: '100%' }}>
