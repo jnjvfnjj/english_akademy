@@ -6,6 +6,11 @@ plugins {
 group = 'com.school'
 version = '0.0.1-SNAPSHOT'
 
+layout.buildDirectory.set(new File(
+        System.getProperty('java.io.tmpdir'),
+        "${rootProject.name}-build"
+))
+
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
