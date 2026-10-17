@@ -38,12 +38,11 @@ test {
 }
 
 bootJar {
-    enabled = false
+    enabled = true
 }
 
 jar {
-    enabled = true
-    archiveClassifier = ''
+    enabled = false
 }
 
 
