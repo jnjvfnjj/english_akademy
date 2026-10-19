@@ -17,6 +17,10 @@ public class DatabaseConfiguration {
     @Primary
     DataSource dataSource(Environment environment) {
         String url = environment.getRequiredProperty("spring.datasource.url");
+        if (url.isBlank()) {
+            throw new IllegalStateException(
+                    "Database URL is empty. Set SPRING_DATASOURCE_URL or DATABASE_URL to a JDBC URL.");
+        }
         if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
             return flyPostgresDataSource(url);
         }
