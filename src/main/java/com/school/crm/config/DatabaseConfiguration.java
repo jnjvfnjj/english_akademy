@@ -24,7 +24,10 @@ public class DatabaseConfiguration {
         DataSourceBuilder<?> builder = DataSourceBuilder.create().url(url);
         String username = environment.getProperty("spring.datasource.username");
         String password = environment.getProperty("spring.datasource.password");
-        String driver = environment.getProperty("spring.datasource.driverClassName");
+        String driver = environment.getProperty("spring.datasource.driver-class-name");
+        if (driver == null) {
+            driver = environment.getProperty("DATABASE_DRIVER");
+        }
         if (username != null) {
             builder.username(username);
         }
