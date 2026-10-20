@@ -19,10 +19,10 @@ public class DatabaseConfiguration {
         String url = environment.getRequiredProperty("spring.datasource.url");
         if (url.isBlank()) {
             throw new IllegalStateException(
-                    "Database URL is empty. Set SPRING_DATASOURCE_URL or DATABASE_URL to a JDBC URL.");
+                    "Database URL is empty. Set SPRING_DATASOURCE_URL to a JDBC URL.");
         }
         if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
-            return flyPostgresDataSource(url);
+            return postgresDataSource(url);
         }
 
         DataSourceBuilder<?> builder = DataSourceBuilder.create().url(url);
@@ -44,12 +44,12 @@ public class DatabaseConfiguration {
         return builder.build();
     }
 
-    private DataSource flyPostgresDataSource(String url) {
+    private DataSource postgresDataSource(String url) {
         URI uri = URI.create(url);
         String rawUserInfo = uri.getRawUserInfo();
         int passwordSeparator = rawUserInfo == null ? -1 : rawUserInfo.indexOf(':');
         if (uri.getHost() == null || uri.getRawPath() == null || passwordSeparator < 1) {
-            throw new IllegalArgumentException("DATABASE_URL не содержит корректные реквизиты Fly Postgres.");
+            throw new IllegalArgumentException("PostgreSQL URL не содержит корректные реквизиты.");
         }
 
         String username = decodeUrlComponent(rawUserInfo.substring(0, passwordSeparator));

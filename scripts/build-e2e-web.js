@@ -16,7 +16,7 @@ function build(apiUrl) {
 }
 
 const localApiUrl = 'http://127.0.0.1:8081/api';
-const productionApiUrl = 'https://english-akademy.fly.dev/api';
+const productionApiUrl = process.env.EXPO_PUBLIC_API_URL;
 const testResult = build(localApiUrl);
 if (testResult !== 0) {
   process.exit(testResult);

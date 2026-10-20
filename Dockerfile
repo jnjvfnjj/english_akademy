@@ -7,6 +7,7 @@ RUN gradle bootJar --no-daemon
 
 FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
+ENV PORT=10000
 
 COPY --from=build /tmp/english-school-crm-build/libs/*.jar app.jar
 
