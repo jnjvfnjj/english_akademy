@@ -30,7 +30,9 @@ export default function StudentDetailModal({
 
   // If student updated in store, find latest version
   const currentStudent = student ? allStudents.find(s => s.id === student.id) || student : null;
-  const isAdmin = useSelector((state: RootState) => state.auth.user?.role === 'Admin');
+  const currentUser = useSelector((state: RootState) => state.auth.user);
+  const isAdmin = currentUser?.role === 'Admin';
+  const canViewPayments = isAdmin || currentUser?.canViewStudentPayments === true;
 
   // Local state for fast hours top-up modal or notes editing
   const [showTopup, setShowTopup] = useState(false);
@@ -139,7 +141,7 @@ export default function StudentDetailModal({
                     {currentStudent.name}
                   </Text>
                   {/* Clickable Status Badge right in the header! */}
-                  <StudentStatusBadge student={currentStudent} size="sm" />
+                  <StudentStatusBadge student={currentStudent} size="sm" interactive={isAdmin} />
                 </View>
 
                 <View className="flex-row items-center gap-3 flex-wrap">
@@ -232,14 +234,14 @@ export default function StudentDetailModal({
                 </Text>
               </View>
 
-              {isAdmin && (
+              {canViewPayments && (
                 <View className="flex-1 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-                  <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Всего оплачено</Text>
+                  <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Оплачено всего</Text>
                   <Text className="text-2xl font-black text-slate-900 mt-1">
                     ${currentStudent.totalPaid}
                   </Text>
                   <Text className="text-[10px] text-slate-400 mt-1">
-                    Суммарный доход
+                    {currentStudent.totalPaid > 0 ? 'Есть оплата по договору' : 'Оплаты пока нет'}
                   </Text>
                 </View>
               )}
@@ -255,7 +257,7 @@ export default function StudentDetailModal({
                   Нажмите на значок статуса для моментального изменения активности.
                 </Text>
               </View>
-              <StudentStatusBadge student={currentStudent} size="md" />
+              <StudentStatusBadge student={currentStudent} size="md" interactive={isAdmin} />
             </View>
 
             {/* Teacher Notes */}
@@ -267,16 +269,16 @@ export default function StudentDetailModal({
                     Заметки преподавателя
                   </Text>
                 </View>
-                {!isEditingNotes ? (
+                {!isEditingNotes && isAdmin ? (
                   <TouchableOpacity onPress={startEditNotes}>
                     <Text className="text-xs text-indigo-600 font-semibold hover:underline">Изменить</Text>
                   </TouchableOpacity>
-                ) : (
+                ) : isEditingNotes ? (
                   <TouchableOpacity onPress={handleSaveNotes} className="flex-row items-center gap-1 bg-indigo-600 px-2 py-0.5 rounded">
                     <Check size={12} color="#ffffff" />
                     <Text className="text-xs text-white font-semibold">Сохранить</Text>
                   </TouchableOpacity>
-                )}
+                ) : null}
               </View>
 
               {!isEditingNotes ? (

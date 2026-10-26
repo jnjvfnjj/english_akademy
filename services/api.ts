@@ -10,6 +10,7 @@ export interface ApiStaffUser {
   name?: string;
   role: 'Admin' | 'Teacher';
   superAdmin: boolean;
+  canViewStudentPayments?: boolean;
 }
 
 export interface ApiTeacherAccount {
@@ -17,18 +18,20 @@ export interface ApiTeacherAccount {
   name: string;
   email: string;
   active: boolean;
+  canViewStudentPayments: boolean;
 }
 
 export interface ApiTeacherProfile {
   name: string;
   email: string;
   role: 'Teacher';
+  canViewStudentPayments: boolean;
 }
 
 export interface ApiStudent {
   id: number | string;
   name: string;
-  email: string;
+  email?: string;
   phone?: string;
   level?: string;
   balance: number;
@@ -37,12 +40,21 @@ export interface ApiStudent {
   ageGroup: 'Kids' | 'Teens' | 'Adults';
   status: 'Active' | 'On Hold' | 'Completed';
   notes?: string;
+  groupId?: number | string;
+  groupName?: string;
+  groupIds?: Array<number | string>;
+  educationFormat?: string;
+  courses?: string[];
+  paymentExpiresAt?: string;
+  paymentCurrency?: 'KGS' | 'USD';
+  paymentDate?: string;
+  paymentAmount?: number;
 }
 
 export function createStudentRequest(student: Omit<ApiStudent, 'id'> | ApiStudent): Omit<ApiStudent, 'id'> {
   return {
     name: student.name,
-    email: student.email,
+    email: student.email?.trim() || undefined,
     phone: student.phone,
     level: student.level,
     balance: student.balance,
@@ -51,7 +63,62 @@ export function createStudentRequest(student: Omit<ApiStudent, 'id'> | ApiStuden
     ageGroup: student.ageGroup,
     status: student.status,
     notes: student.notes,
+    groupId: student.groupId && /^\d+$/.test(String(student.groupId))
+      ? Number(student.groupId)
+      : undefined,
+    groupIds: student.groupIds?.filter(id => /^\d+$/.test(String(id))).map(Number),
+    educationFormat: student.educationFormat,
+    courses: student.courses,
+    paymentExpiresAt: student.paymentExpiresAt,
+    paymentCurrency: student.paymentCurrency,
+    paymentDate: student.paymentDate,
+    paymentAmount: student.paymentAmount,
   };
+}
+
+export interface ApiSchoolGroup {
+  id: number | string;
+  title: string;
+  level: string;
+  description: string;
+  teacherId: number;
+  teacherName: string;
+  studentIds: Array<number | string>;
+}
+
+export interface ApiLesson {
+  id: number | string;
+  groupId?: number | string;
+  groupName?: string;
+  studentId?: number | string;
+  studentName?: string;
+  date: string;
+  time: string;
+  teacherName: string;
+  topic: string;
+  duration: number;
+  status: 'Scheduled' | 'Completed' | 'Cancelled';
+  notes?: string;
+  weeklyScheduleId?: number;
+}
+
+export interface ApiWeeklySchedule {
+  id: number;
+  groupId: number;
+  groupName: string;
+  teacherName: string;
+  dayOfWeek: number;
+  time: string;
+  topic: string;
+  duration: number;
+  studentIds: number[];
+}
+
+export interface ApiPaymentReminder {
+  studentId: number;
+  studentName: string;
+  remainingLessons: number;
+  expiresAt?: string;
 }
 
 export interface StudentDeletionNotice {
@@ -72,6 +139,9 @@ export interface ApiTransaction {
   category: 'Tuition' | 'Salary' | 'Materials' | 'Rent' | 'Other';
   date: string;
   description: string;
+  lessonsPurchased?: number;
+  expiresAt?: string;
+  currency?: 'KGS' | 'USD';
 }
 
 export class ApiError extends Error {

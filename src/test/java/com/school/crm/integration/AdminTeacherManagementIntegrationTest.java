@@ -1,6 +1,6 @@
 package com.school.crm.integration;
 
-import com.school.crm.model.dto.AuthRequest;
+import com.school.crm.model.dto.TeacherCreateRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,14 +35,16 @@ class AdminTeacherManagementIntegrationTest extends StaffIntegrationTestSupport 
         String teacherEmail = "teacher-" + System.nanoTime() + "@school.test";
         String teacherPassword = "TeacherPass123!";
 
-        mockMvc.perform(post("/api/auth/register")
+        mockMvc.perform(post("/api/admin/teachers")
+                        .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(Map.of(
                                 "email", teacherEmail,
                                 "password", teacherPassword,
                                 "name", "Manageable Teacher"
                         ))))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.canViewStudentPayments").value(false));
         String teacherToken = login(teacherEmail, teacherPassword);
 
         MvcResult listResult = mockMvc.perform(get("/api/admin/teachers")
@@ -50,6 +52,7 @@ class AdminTeacherManagementIntegrationTest extends StaffIntegrationTestSupport 
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].email").value(teacherEmail))
                 .andExpect(jsonPath("$[0].active").value(true))
+                .andExpect(jsonPath("$[0].canViewStudentPayments").value(false))
                 .andReturn();
         long teacherId = objectMapper.readTree(listResult.getResponse().getContentAsByteArray())
                 .get(0).get("id").asLong();
@@ -80,10 +83,19 @@ class AdminTeacherManagementIntegrationTest extends StaffIntegrationTestSupport 
     @Test
     void teacherCannotAccessManagementEndpoints() throws Exception {
         String teacherEmail = "teacher-" + System.nanoTime() + "@school.test";
-        authService.registerTeacher(new AuthRequest(teacherEmail, "TeacherPass123!", "Regular Teacher"));
+        authService.createTeacher(new TeacherCreateRequest(teacherEmail, "Regular Teacher", "TeacherPass123!"));
         String token = login(teacherEmail, "TeacherPass123!");
 
         mockMvc.perform(get("/api/admin/teachers").header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/teachers")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of(
+                                "email", "unauthorized-" + System.nanoTime() + "@school.test",
+                                "name", "Unauthorized Create",
+                                "password", "TeacherPass123!"
+                        ))))
                 .andExpect(status().isForbidden());
     }
 }

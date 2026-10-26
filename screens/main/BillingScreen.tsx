@@ -4,6 +4,19 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState, Transaction, addTransaction, updateTransaction, deleteTransaction } from '../../store';
 import { DollarSign, ArrowUpRight, ArrowDownRight, Plus, AlertCircle, Edit, Trash2, ShieldAlert, Lock, Check } from 'lucide-react-native';
 
+const today = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+const addOneMonth = (date: string) => {
+  const [year, month, day] = date.split('-').map(Number);
+  const targetMonth = month === 12 ? 1 : month + 1;
+  const targetYear = month === 12 ? year + 1 : year;
+  const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+  return `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(Math.min(day, lastDay)).padStart(2, '0')}`;
+};
+
 export default function BillingScreen() {
   const dispatch = useDispatch();
   const transactions = useSelector((state: RootState) => state.billing.transactions);
@@ -17,12 +30,14 @@ export default function BillingScreen() {
   const [filterType, setFilterType] = useState<'All' | 'Income' | 'Expense'>('All');
 
   // Form states
-  const [amount, setAmount] = useState('150');
+  const [amount, setAmount] = useState('2100');
+  const [currency, setCurrency] = useState<'KGS' | 'USD'>('KGS');
+  const [lessonsPurchased, setLessonsPurchased] = useState('12');
   const [type, setType] = useState<'Income' | 'Expense'>('Income');
   const [category, setCategory] = useState<'Tuition' | 'Salary' | 'Materials' | 'Rent' | 'Other'>('Tuition');
   const [studentId, setStudentId] = useState('');
   const [description, setDescription] = useState('');
-  const [date, setDate] = useState('2026-05-28');
+  const [date, setDate] = useState(today);
 
   // If user is not Admin, display access restricted screen
   if (!isAdmin) {
@@ -54,26 +69,38 @@ export default function BillingScreen() {
   const incomeTrans = activeTransactions.filter(t => t.type === 'Income');
   const expenseTrans = activeTransactions.filter(t => t.type === 'Expense');
 
-  const totalIncome = incomeTrans.reduce((sum, t) => sum + t.amount, 0);
-  const totalExpense = expenseTrans.reduce((sum, t) => sum + t.amount, 0);
-  const netProfit = totalIncome - totalExpense;
+  const sumCurrency = (items: Transaction[], target: 'KGS' | 'USD') => items
+    .filter(item => (item.currency || 'USD') === target)
+    .reduce((sum, item) => sum + item.amount, 0);
+  const totalIncomeKgs = sumCurrency(incomeTrans, 'KGS');
+  const totalIncomeUsd = sumCurrency(incomeTrans, 'USD');
+  const totalExpenseKgs = sumCurrency(expenseTrans, 'KGS');
+  const totalExpenseUsd = sumCurrency(expenseTrans, 'USD');
+  const formatMoney = (value: number, valueCurrency: 'KGS' | 'USD') =>
+    valueCurrency === 'KGS' ? `${value.toLocaleString()} сом` : `$${value.toLocaleString()}`;
+  const netProfitKgs = totalIncomeKgs - totalExpenseKgs;
+  const netProfitUsd = totalIncomeUsd - totalExpenseUsd;
 
   const filteredTrans = activeTransactions.filter(t => filterType === 'All' || t.type === filterType);
 
   const openAddModal = () => {
     setEditingTransaction(null);
-    setAmount('150');
+    setAmount('2100');
+    setCurrency('KGS');
+    setLessonsPurchased('12');
     setType('Income');
     setCategory('Tuition');
     setStudentId(students.length > 0 ? students[0].id : '');
     setDescription('');
-    setDate('2026-05-28');
+    setDate(today());
     setModalOpen(true);
   };
 
   const openEditModal = (tx: Transaction) => {
     setEditingTransaction(tx);
     setAmount(tx.amount.toString());
+    setCurrency(tx.currency || 'USD');
+    setLessonsPurchased(String(tx.lessonsPurchased || ''));
     setType(tx.type);
     setCategory(tx.category);
     setStudentId(tx.studentId || '');
@@ -86,6 +113,10 @@ export default function BillingScreen() {
     if (!amount || !description) return;
     const amtNum = parseFloat(amount) || 0;
     if (amtNum <= 0) return;
+    const lessonsCount = Number.parseInt(lessonsPurchased, 10);
+    const isTuitionPayment = type === 'Income' && category === 'Tuition' && Boolean(studentId);
+    if (isTuitionPayment && (!Number.isInteger(lessonsCount) || lessonsCount <= 0)) return;
+    const expiry = isTuitionPayment ? addOneMonth(date) : undefined;
 
     let selectedStdName = '';
     if (type === 'Income' && studentId) {
@@ -98,12 +129,15 @@ export default function BillingScreen() {
       const updatedTx: Transaction = {
         ...editingTransaction,
         amount: amtNum,
+        currency,
         type,
         category,
         studentId: type === 'Income' && studentId ? studentId : undefined,
         studentName: selectedStdName || undefined,
         date,
-        description
+        description,
+        lessonsPurchased: isTuitionPayment ? lessonsCount : undefined,
+        expiresAt: expiry
       };
       dispatch(updateTransaction(updatedTx));
     } else {
@@ -112,10 +146,13 @@ export default function BillingScreen() {
         studentId: type === 'Income' && studentId ? studentId : undefined,
         studentName: selectedStdName || undefined,
         amount: amtNum,
+        currency,
         type,
         category,
         date,
-        description
+        description,
+        lessonsPurchased: isTuitionPayment ? lessonsCount : undefined,
+        expiresAt: expiry
       }));
 
       // If tuition, increment student hours
@@ -123,15 +160,22 @@ export default function BillingScreen() {
         const index = students.findIndex(s => s.id === studentId);
         if (index !== -1) {
           const student = students[index];
-          const hoursBought = Math.floor(amtNum / 25);
+          const hoursBought = isTuitionPayment ? lessonsCount : 0;
           if (hoursBought > 0) {
+            const nextPaidTotal = student.paymentCurrency === currency
+              ? student.totalPaid + amtNum
+              : amtNum;
             dispatch({
               type: 'students/updateStudent',
               payload: {
                 ...student,
                 balance: student.balance + hoursBought,
-                totalPaid: student.totalPaid + amtNum,
-                totalClasses: student.totalClasses + hoursBought
+                totalPaid: nextPaidTotal,
+                totalClasses: student.totalClasses + hoursBought,
+                paymentCurrency: currency,
+                paymentAmount: amtNum,
+                paymentDate: date,
+                paymentExpiresAt: expiry
               }
             });
           }
@@ -229,6 +273,9 @@ export default function BillingScreen() {
                     <Text className="text-xs text-slate-400 font-medium">
                       {tx.date}
                     </Text>
+                    {tx.expiresAt ? (
+                      <Text className="text-[10px] font-medium text-slate-400">Оплата до: {tx.expiresAt}</Text>
+                    ) : null}
                   </View>
                 </View>
               </View>
@@ -236,7 +283,7 @@ export default function BillingScreen() {
               <View className="flex-row items-center gap-3">
                 <View className="items-end mr-1">
                   <Text className={`text-sm font-black ${tx.type === 'Income' ? 'text-emerald-700' : 'text-rose-600'}`}>
-                    {tx.type === 'Income' ? '+' : '-'}${tx.amount}
+                    {tx.type === 'Income' ? '+' : '-'}{formatMoney(tx.amount, tx.currency || 'USD')}
                   </Text>
                   <Text className="text-[10px] uppercase font-bold text-slate-400 mt-0.5">
                     {tx.type === 'Income' ? 'Доход' : 'Расход'}
@@ -286,7 +333,9 @@ export default function BillingScreen() {
             <View className="flex-row justify-between items-center">
               <View>
                 <Text className="text-xs text-slate-400 uppercase font-semibold">Валовая выручка (доходы)</Text>
-                <Text className="text-lg font-black text-emerald-600 mt-1">${totalIncome.toLocaleString()}</Text>
+                <Text className="text-lg font-black text-emerald-600 mt-1">
+                  {formatMoney(totalIncomeKgs, 'KGS')}{totalIncomeUsd ? ` · ${formatMoney(totalIncomeUsd, 'USD')}` : ''}
+                </Text>
               </View>
               <ArrowUpRight size={24} color="#10b981" />
             </View>
@@ -294,7 +343,9 @@ export default function BillingScreen() {
             <View className="border-t border-slate-200 flex-row justify-between items-center pt-3">
               <View>
                 <Text className="text-xs text-slate-400 uppercase font-semibold">Общие расходы</Text>
-                <Text className="text-lg font-black text-rose-600 mt-1">${totalExpense.toLocaleString()}</Text>
+                <Text className="text-lg font-black text-rose-600 mt-1">
+                  {formatMoney(totalExpenseKgs, 'KGS')}{totalExpenseUsd ? ` · ${formatMoney(totalExpenseUsd, 'USD')}` : ''}
+                </Text>
               </View>
               <ArrowDownRight size={24} color="#f43f5e" />
             </View>
@@ -303,8 +354,8 @@ export default function BillingScreen() {
           <View className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl flex-row justify-between items-center">
             <View>
               <Text className="text-xs text-indigo-700 uppercase font-bold">Чистая прибыль школы</Text>
-              <Text className={`text-2xl font-black mt-1 ${netProfit >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
-                ${netProfit.toLocaleString()}
+              <Text className={`text-2xl font-black mt-1 ${netProfitKgs >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+                {formatMoney(netProfitKgs, 'KGS')}{netProfitUsd ? ` · ${formatMoney(netProfitUsd, 'USD')}` : ''}
               </Text>
             </View>
             <DollarSign size={28} color="#4f46e5" />
@@ -354,14 +405,25 @@ export default function BillingScreen() {
 
                 <View className="grid grid-cols-2 gap-4">
                   <View>
-                    <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Сумма ($ USD)</Text>
+                    <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Сумма · {currency === 'KGS' ? 'сом' : 'USD'}</Text>
                     <TextInput 
                       value={amount} 
                       onChangeText={setAmount} 
                       keyboardType="numeric" 
-                      placeholder="150" 
+                      placeholder={currency === 'KGS' ? '2100' : '150'}
                       className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm font-bold" 
                     />
+                    <View className="mt-2 flex-row gap-2">
+                      {(['KGS', 'USD'] as const).map(item => (
+                        <TouchableOpacity
+                          key={item}
+                          onPress={() => setCurrency(item)}
+                          className={`rounded-md border px-3 py-1.5 ${currency === item ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white'}`}
+                        >
+                          <Text className={`text-xs font-semibold ${currency === item ? 'text-indigo-700' : 'text-slate-600'}`}>{item === 'KGS' ? 'Сом' : 'USD'}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
                   </View>
 
                   <View>
@@ -405,6 +467,20 @@ export default function BillingScreen() {
                   </View>
                 )}
 
+                {type === 'Income' && category === 'Tuition' && studentId ? (
+                  <View>
+                    <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Оплачено занятий *</Text>
+                    <TextInput
+                      value={lessonsPurchased}
+                      onChangeText={setLessonsPurchased}
+                      keyboardType="number-pad"
+                      placeholder="12"
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800"
+                    />
+                    <Text className="mt-1 text-[11px] text-slate-500">Срок оплаты автоматически закончится {date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? addOneMonth(date) : 'через месяц'}.</Text>
+                  </View>
+                ) : null}
+
                 <View>
                   <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Описание операции</Text>
                   <TextInput 
@@ -420,7 +496,7 @@ export default function BillingScreen() {
                   <TextInput 
                     value={date} 
                     onChangeText={setDate} 
-                    placeholder="2026-05-28" 
+                    placeholder="ГГГГ-ММ-ДД"
                     className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" 
                   />
                 </View>

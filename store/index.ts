@@ -1,5 +1,16 @@
 import { configureStore, createListenerMiddleware, createSlice, isAnyOf, PayloadAction } from '@reduxjs/toolkit';
-import { apiRequest, ApiError, ApiStudent, ApiTransaction, StudentDeletionNotice, createStudentRequest } from '../services/api';
+import {
+  apiRequest,
+  ApiError,
+  ApiLesson,
+  ApiWeeklySchedule,
+  ApiSchoolGroup,
+  ApiStudent,
+  ApiTransaction,
+  ApiPaymentReminder,
+  StudentDeletionNotice,
+  createStudentRequest
+} from '../services/api';
 
 export interface Student {
   id: string;
@@ -13,6 +24,15 @@ export interface Student {
   ageGroup: 'Kids' | 'Teens' | 'Adults';
   status: 'Active' | 'On Hold' | 'Completed';
   notes?: string;
+  groupId?: string;
+  groupName?: string;
+  groupIds?: string[];
+  educationFormat?: string;
+  courses?: string[];
+  paymentExpiresAt?: string;
+  paymentCurrency?: 'KGS' | 'USD';
+  paymentDate?: string;
+  paymentAmount?: number;
 }
 
 export interface Group {
@@ -22,8 +42,22 @@ export interface Group {
   desc: string; // e.g. "Начальный (Beginner)"
   level: string; // "A1" | "A2" | "B1" | "B2" | "C1" | "C2"
   teacherName?: string;
+  teacherId?: number;
+  studentIds?: string[];
   color?: string;
   activeText?: string;
+}
+
+export interface WeeklySchedule {
+  id: string;
+  groupId: string;
+  groupName: string;
+  teacherName: string;
+  dayOfWeek: number;
+  time: string;
+  topic: string;
+  duration: number;
+  studentIds: string[];
 }
 
 export interface Lesson {
@@ -39,6 +73,7 @@ export interface Lesson {
   duration: number; // in hours
   status: 'Scheduled' | 'Completed' | 'Cancelled';
   notes?: string;
+  weeklyScheduleId?: string;
 }
 
 export interface Transaction {
@@ -50,10 +85,19 @@ export interface Transaction {
   category: 'Tuition' | 'Salary' | 'Materials' | 'Rent' | 'Other';
   date: string; // YYYY-MM-DD
   description: string;
+  lessonsPurchased?: number;
+  expiresAt?: string;
+  currency?: 'KGS' | 'USD';
 }
 
 interface AuthState {
-  user: { email: string; name?: string; role: 'Admin' | 'Teacher'; superAdmin: boolean } | null;
+  user: {
+    email: string;
+    name?: string;
+    role: 'Admin' | 'Teacher';
+    superAdmin: boolean;
+    canViewStudentPayments: boolean;
+  } | null;
   token: string | null;
   isAuthenticated: boolean;
   loading: boolean;
@@ -140,13 +184,15 @@ const authSlice = createSlice({
       name?: string;
       role: 'Admin' | 'Teacher';
       superAdmin: boolean;
+      canViewStudentPayments?: boolean;
       token: string;
     }>) => {
       state.user = {
         email: action.payload.email,
         name: action.payload.name,
         role: action.payload.role,
-        superAdmin: action.payload.superAdmin
+        superAdmin: action.payload.superAdmin,
+        canViewStudentPayments: action.payload.canViewStudentPayments === true
       };
       state.token = action.payload.token;
       state.isAuthenticated = true;
@@ -155,6 +201,9 @@ const authSlice = createSlice({
       state.user = null;
       state.token = null;
       state.isAuthenticated = false;
+    },
+    setPaymentVisibility: (state, action: PayloadAction<boolean>) => {
+      if (state.user) state.user.canViewStudentPayments = action.payload;
     }
   }
 });
@@ -167,12 +216,14 @@ const studentsSlice = createSlice({
     loading: false
   },
   reducers: {
-    addStudent: (state, action: PayloadAction<Omit<Student, 'id' | 'totalClasses' | 'totalPaid'>>) => {
+    addStudent: (state, action: PayloadAction<
+      Omit<Student, 'id' | 'totalClasses' | 'totalPaid'> & Partial<Pick<Student, 'totalClasses' | 'totalPaid'>>
+    >) => {
       const newStudent: Student = {
         ...action.payload,
         id: Math.random().toString(36).substr(2, 9),
-        totalClasses: action.payload.balance,
-        totalPaid: action.payload.balance * 25 // standard rate
+        totalClasses: action.payload.totalClasses ?? action.payload.balance,
+        totalPaid: action.payload.totalPaid ?? action.payload.balance * 25
       };
       state.list.unshift(newStudent);
     },
@@ -183,7 +234,9 @@ const studentsSlice = createSlice({
       }
     },
     replaceStudent: (state, action: PayloadAction<Student>) => {
-      const index = state.list.findIndex(s => s.id === action.payload.id || s.email === action.payload.email);
+      const index = state.list.findIndex(s =>
+        s.id === action.payload.id || (!!action.payload.email && s.email === action.payload.email)
+      );
       if (index !== -1) {
         state.list[index] = action.payload;
       } else {
@@ -202,6 +255,11 @@ const studentsSlice = createSlice({
         student.balance = Math.max(0, student.balance + action.payload.amount);
       }
     }
+  },
+  extraReducers: (builder) => {
+    builder.addCase(login, (state, action) => {
+      if (action.payload.role === 'Teacher') state.list = [];
+    });
   }
 });
 
@@ -230,7 +288,15 @@ const groupsSlice = createSlice({
     },
     deleteGroup: (state, action: PayloadAction<string>) => {
       state.list = state.list.filter(g => g.id !== action.payload);
+    },
+    replaceGroups: (state, action: PayloadAction<Group[]>) => {
+      state.list = action.payload;
     }
+  },
+  extraReducers: (builder) => {
+    builder.addCase(login, (state, action) => {
+      if (action.payload.role === 'Teacher') state.list = [];
+    });
   }
 });
 
@@ -260,9 +326,15 @@ const lessonsSlice = createSlice({
     },
     deleteLesson: (state, action: PayloadAction<string>) => {
       state.list = state.list.filter(l => l.id !== action.payload);
+    },
+    replaceLessons: (state, action: PayloadAction<Lesson[]>) => {
+      state.list = action.payload;
     }
   },
   extraReducers: (builder) => {
+    builder.addCase(login, (state, action) => {
+      if (action.payload.role === 'Teacher') state.list = [];
+    });
     builder.addCase(studentsSlice.actions.deleteStudent, (state, action) => {
       state.list = state.list.filter(l => l.studentId !== action.payload);
     });
@@ -305,6 +377,11 @@ const billingSlice = createSlice({
       state.transactions = state.transactions.filter(t => t.id !== action.payload);
     }
   },
+  extraReducers: (builder) => {
+    builder.addCase(login, (state, action) => {
+      if (action.payload.role === 'Teacher') state.transactions = [];
+    });
+  }
 });
 
 const syncSlice = createSlice({
@@ -319,22 +396,40 @@ const syncSlice = createSlice({
 
 const notificationsSlice = createSlice({
   name: 'notifications',
-  initialState: { deletions: [] as StudentDeletionNotice[] },
+  initialState: {
+    deletions: [] as StudentDeletionNotice[],
+    paymentReminders: [] as ApiPaymentReminder[]
+  },
   reducers: {
     setDeletionNotices: (state, action: PayloadAction<StudentDeletionNotice[]>) => {
       state.deletions = action.payload;
+    },
+    setPaymentReminders: (state, action: PayloadAction<ApiPaymentReminder[]>) => {
+      state.paymentReminders = action.payload;
     }
   }
 });
 
-export const { login, logout } = authSlice.actions;
+const weeklySchedulesSlice = createSlice({
+  name: 'weeklySchedules',
+  initialState: { list: [] as WeeklySchedule[] },
+  reducers: {
+    replaceWeeklySchedules: (state, action: PayloadAction<WeeklySchedule[]>) => {
+      state.list = action.payload;
+    }
+  }
+});
+
+export const { login, logout, setPaymentVisibility } = authSlice.actions;
 export const { addStudent, updateStudent, deleteStudent, adjustBalance, replaceStudent, replaceStudents } = studentsSlice.actions;
-export const { addGroup, updateGroup, deleteGroup } = groupsSlice.actions;
-export const { addLesson, updateLessonStatus, deleteLesson } = lessonsSlice.actions;
+export const { addGroup, updateGroup, deleteGroup, replaceGroups } = groupsSlice.actions;
+export const { addLesson, updateLessonStatus, deleteLesson, replaceLessons } = lessonsSlice.actions;
 export const { addTransaction, updateTransaction, deleteTransaction } = billingSlice.actions;
 export const { replaceTransaction, replaceTransactions } = billingSlice.actions;
 export const { setSyncError } = syncSlice.actions;
 export const { setDeletionNotices } = notificationsSlice.actions;
+export const { setPaymentReminders } = notificationsSlice.actions;
+export const { replaceWeeklySchedules } = weeklySchedulesSlice.actions;
 
 const listenerMiddleware = createListenerMiddleware();
 let pendingStudentSync: Promise<void> = Promise.resolve();
@@ -352,18 +447,25 @@ listenerMiddleware.startListening({
 
     pendingStudentSync = pendingStudentSync.then(async () => {
       if (addStudent.match(action)) {
-        const localStudent = state.students.list.find(student => student.email === action.payload.email);
+        const localStudent = state.students.list[0];
         if (!localStudent) return;
         const created = await apiRequest<ApiStudent>('/students', {
           method: 'POST',
           body: JSON.stringify(createStudentRequest(localStudent))
         }, token);
         localToRemoteStudentIds.set(String(localStudent.id), String(created.id));
-        listenerApi.dispatch(replaceStudent(mapApiStudent(created)));
+        listenerApi.dispatch(replaceStudent({
+          ...mapApiStudent(created),
+          id: localStudent.id
+        }));
+        if (localStudent.paymentAmount && localStudent.paymentAmount > 0) {
+          const transactions = await apiRequest<ApiTransaction[]>('/transactions', {}, token);
+          listenerApi.dispatch(replaceTransactions(transactions.map(mapApiTransaction)));
+        }
       } else if (updateStudent.match(action)) {
         await apiRequest<ApiStudent>(`/students/${encodeURIComponent(action.payload.id)}`, {
           method: 'PUT',
-          body: JSON.stringify(action.payload)
+          body: JSON.stringify(createStudentRequest(action.payload))
         }, token);
       } else if (deleteStudent.match(action)) {
         await apiRequest<void>(`/students/${encodeURIComponent(action.payload)}`, {
@@ -422,7 +524,7 @@ listenerMiddleware.startListening({
             ...localTransaction,
             id: undefined,
             studentId: apiStudentId,
-            applyToStudentBalance: !localTransaction.description.startsWith('Зарегистрирован студент ')
+            applyToStudentBalance: false
           })
         }, token);
         listenerApi.dispatch(replaceTransaction(mapApiTransaction(created)));
@@ -450,12 +552,75 @@ listenerMiddleware.startListening({
   }
 });
 
+listenerMiddleware.startListening({
+  matcher: isAnyOf(addLesson, updateLessonStatus, deleteLesson),
+  effect: async (action, listenerApi) => {
+    const state = listenerApi.getState() as {
+      auth: { token: string | null };
+      lessons: { list: Lesson[] };
+    };
+    const token = state.auth.token;
+    if (!token) return;
+
+    try {
+      if (addLesson.match(action)) {
+        const groupId = action.payload.groupId;
+        if (!groupId || !/^\d+$/.test(groupId)) {
+          throw new ApiError('Выбранная группа ещё не сохранена на сервере.');
+        }
+        await apiRequest<ApiLesson>('/lessons', {
+          method: 'POST',
+          body: JSON.stringify({
+            groupId: Number(groupId),
+            date: action.payload.date,
+            time: action.payload.time,
+            teacherName: action.payload.teacherName,
+            topic: action.payload.topic,
+            duration: action.payload.duration,
+            status: action.payload.status,
+            notes: action.payload.notes
+          })
+        }, token);
+      } else if (updateLessonStatus.match(action)) {
+        const lessonId = action.payload.id;
+        if (!/^\d+$/.test(lessonId)) {
+          throw new ApiError('Урок ещё не сохранён на сервере.');
+        }
+        const params = new URLSearchParams({ status: action.payload.status });
+        if (action.payload.notes !== undefined) params.set('notes', action.payload.notes);
+        await apiRequest<void>(`/lessons/${encodeURIComponent(lessonId)}/status?${params.toString()}`, {
+          method: 'PATCH'
+        }, token);
+      } else if (deleteLesson.match(action)) {
+        if (!/^\d+$/.test(action.payload)) {
+          throw new ApiError('Урок ещё не сохранён на сервере.');
+        }
+        await apiRequest<void>(`/lessons/${encodeURIComponent(action.payload)}`, {
+          method: 'DELETE'
+        }, token);
+      }
+
+      const lessons = await apiRequest<ApiLesson[]>('/lessons', {}, token);
+      listenerApi.dispatch(replaceLessons(lessons.map(mapApiLesson)));
+      if (updateLessonStatus.match(action)) {
+        const students = await apiRequest<ApiStudent[]>('/students', {}, token);
+        listenerApi.dispatch(replaceStudents(students.map(mapApiStudent)));
+      }
+    } catch (error) {
+      listenerApi.dispatch(setSyncError(
+        error instanceof ApiError ? error.message : 'Не удалось сохранить расписание на сервере.'
+      ));
+    }
+  }
+});
+
 export const store = configureStore({
   reducer: {
     auth: authSlice.reducer,
     students: studentsSlice.reducer,
     groups: groupsSlice.reducer,
     lessons: lessonsSlice.reducer,
+    weeklySchedules: weeklySchedulesSlice.reducer,
     billing: billingSlice.reducer,
     sync: syncSlice.reducer,
     notifications: notificationsSlice.reducer
@@ -479,7 +644,7 @@ export function mapApiStudent(student: ApiStudent): Student {
   return {
     id: String(student.id),
     name: student.name,
-    email: student.email,
+    email: student.email || '',
     phone: student.phone || '',
     level: student.level || '',
     balance: student.balance,
@@ -487,7 +652,49 @@ export function mapApiStudent(student: ApiStudent): Student {
     totalPaid: student.totalPaid,
     ageGroup: student.ageGroup,
     status: student.status,
-    notes: student.notes
+    notes: student.notes,
+    groupId: student.groupId === undefined ? undefined : String(student.groupId),
+    groupName: student.groupName,
+    groupIds: (student.groupIds || (student.groupId === undefined ? [] : [student.groupId])).map(String),
+    educationFormat: student.educationFormat,
+    courses: student.courses || [],
+    paymentExpiresAt: student.paymentExpiresAt,
+    paymentCurrency: student.paymentCurrency,
+    paymentDate: student.paymentDate,
+    paymentAmount: student.paymentAmount
+  };
+}
+
+export function mapApiGroup(group: ApiSchoolGroup): Group {
+  return {
+    id: String(group.id),
+    key: group.level,
+    title: group.title,
+    desc: group.description || '',
+    level: group.level,
+    teacherName: group.teacherName,
+    teacherId: group.teacherId,
+    studentIds: group.studentIds.map(String),
+    color: 'border-indigo-400 bg-indigo-50 text-indigo-700',
+    activeText: 'text-indigo-800'
+  };
+}
+
+export function mapApiLesson(lesson: ApiLesson): Lesson {
+  return {
+    id: String(lesson.id),
+    groupId: lesson.groupId === undefined ? undefined : String(lesson.groupId),
+    groupName: lesson.groupName || '',
+    studentId: lesson.studentId === undefined ? undefined : String(lesson.studentId),
+    studentName: lesson.studentName,
+    date: lesson.date,
+    time: lesson.time,
+    teacherName: lesson.teacherName,
+    topic: lesson.topic,
+    duration: lesson.duration,
+    status: lesson.status,
+    notes: lesson.notes,
+    weeklyScheduleId: lesson.weeklyScheduleId === undefined ? undefined : String(lesson.weeklyScheduleId)
   };
 }
 
@@ -500,6 +707,23 @@ export function mapApiTransaction(transaction: ApiTransaction): Transaction {
     type: transaction.type,
     category: transaction.category,
     date: transaction.date,
-    description: transaction.description
+    description: transaction.description,
+    lessonsPurchased: transaction.lessonsPurchased,
+    expiresAt: transaction.expiresAt,
+    currency: transaction.currency
+  };
+}
+
+export function mapApiWeeklySchedule(schedule: ApiWeeklySchedule): WeeklySchedule {
+  return {
+    id: String(schedule.id),
+    groupId: String(schedule.groupId),
+    groupName: schedule.groupName,
+    teacherName: schedule.teacherName,
+    dayOfWeek: schedule.dayOfWeek,
+    time: schedule.time,
+    topic: schedule.topic,
+    duration: schedule.duration,
+    studentIds: schedule.studentIds.map(String)
   };
 }

@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
+import java.time.LocalDate;
 
 @Service
 public class TransactionServiceImpl implements TransactionService {
@@ -74,38 +75,38 @@ public class TransactionServiceImpl implements TransactionService {
                 && "Tuition".equalsIgnoreCase(dto.getCategory())) {
             
             // 1. STRATEGY PATTERN: Select pricing policy dynamically based on request packaging tier
-            PricingStrategy selectedStrategy;
-            String tier = (dto.getPricingTier() != null) ? dto.getPricingTier().toUpperCase() : "REGULAR";
-            
-            switch (tier) {
-                case "STANDARD_PACKAGE":
-                    selectedStrategy = new PackagePricingStrategy();
-                    break;
-                case "VIP_GOLD":
-                    selectedStrategy = new VipGoldPricingStrategy();
-                    break;
-                case "REGULAR":
-                default:
-                    selectedStrategy = new RegularPricingStrategy();
-                    break;
+            int hoursToBuy;
+            PricingContext pricingContext = null;
+            if (dto.getLessonsPurchased() != null) {
+                hoursToBuy = dto.getLessonsPurchased();
+            } else {
+                String tier = dto.getPricingTier() == null ? "REGULAR" : dto.getPricingTier().toUpperCase();
+                PricingStrategy selectedStrategy = switch (tier) {
+                    case "STANDARD_PACKAGE" -> new PackagePricingStrategy();
+                    case "VIP_GOLD" -> new VipGoldPricingStrategy();
+                    default -> new RegularPricingStrategy();
+                };
+                pricingContext = new PricingContext(selectedStrategy);
+                hoursToBuy = (int) Math.round(dto.getAmount() / 25.0);
+                if (hoursToBuy <= 0) hoursToBuy = 10;
+                finalAmount = pricingContext.executeStrategy(hoursToBuy);
             }
-            
-            PricingContext pricingContext = new PricingContext(selectedStrategy);
-            
-            // Let's assume the user supplied hour units in their transaction.
-            // If they didn't, calculate based on supplied transaction money division.
-            int hoursToBuy = (int) Math.round(dto.getAmount() / 25.0); // estimate hours if not explicitly set
-            if (hoursToBuy <= 0) {
-                hoursToBuy = 10; // Default package size
-            }
-            
-            // Apply Strategy algorithm
-            finalAmount = pricingContext.executeStrategy(hoursToBuy);
-            
-            // Refill student parameters
+
             int oldBalance = student.getBalance();
             student.addBalance(hoursToBuy);
-            student.setTotalPaid(student.getTotalPaid() + finalAmount);
+            String currency = dto.getCurrency() == null
+                    ? (dto.getLessonsPurchased() == null ? "USD" : "KGS")
+                    : dto.getCurrency();
+            String currentCurrency = student.getPaymentCurrency() == null ? "USD" : student.getPaymentCurrency();
+            student.setTotalPaid(currency.equals(currentCurrency)
+                    ? student.getTotalPaid() + finalAmount
+                    : finalAmount);
+            student.setPaymentCurrency(currency);
+            LocalDate paidAt = dto.getDate();
+            LocalDate expiresAt = dto.getExpiresAt() == null ? paidAt.plusMonths(1) : dto.getExpiresAt();
+            student.setPaymentDate(paidAt);
+            student.setPaymentAmount(finalAmount);
+            student.setPaymentExpiresAt(expiresAt);
             studentRepository.save(student);
 
             // 2. BUILDER PATTERN: Construct formatted invoice Receipt
@@ -113,7 +114,7 @@ public class TransactionServiceImpl implements TransactionService {
                     .studentEmail(student.getEmail())
                     .amount(finalAmount)
                     .hoursPurchased(hoursToBuy)
-                    .pricingPolicy(pricingContext.executeGetDescription())
+                    .pricingPolicy(pricingContext == null ? "Оплата заданного пакета занятий" : pricingContext.executeGetDescription())
                     .footerMessage("Tuition fees registered inside English School CRM. Good luck with your study!")
                     .build();
 
@@ -128,6 +129,9 @@ public class TransactionServiceImpl implements TransactionService {
                     this, student.getId(), oldBalance, student.getBalance(),
                     "Tuition paid: purchased " + hoursToBuy + " hours and added to package credit."
             ));
+            dto.setLessonsPurchased(hoursToBuy);
+            dto.setExpiresAt(expiresAt);
+            dto.setCurrency(currency);
         }
         // Case: Pay Tutor Salary - other non-trivial triggers
         else if (student != null && "Expense".equalsIgnoreCase(dto.getType()) && "Salary".equalsIgnoreCase(dto.getCategory())) {
@@ -143,6 +147,11 @@ public class TransactionServiceImpl implements TransactionService {
                 dto.getDate(),
                 dto.getDescription()
         );
+        transaction.setLessonsPurchased(dto.getLessonsPurchased());
+        transaction.setExpiresAt(dto.getExpiresAt());
+        transaction.setCurrency(dto.getCurrency() == null
+                ? (dto.getLessonsPurchased() == null ? "USD" : "KGS")
+                : dto.getCurrency());
 
         Transaction saved = transactionRepository.save(transaction);
         
@@ -166,6 +175,9 @@ public class TransactionServiceImpl implements TransactionService {
         transaction.setType(dto.getType());
         transaction.setCategory(dto.getCategory());
         transaction.setDate(dto.getDate());
+        transaction.setLessonsPurchased(dto.getLessonsPurchased());
+        transaction.setExpiresAt(dto.getExpiresAt());
+        if (dto.getCurrency() != null) transaction.setCurrency(dto.getCurrency());
         transaction.setDescription(dto.getDescription());
         return convertToDto(transactionRepository.save(transaction));
     }
@@ -189,6 +201,9 @@ public class TransactionServiceImpl implements TransactionService {
         dto.setType(transaction.getType());
         dto.setCategory(transaction.getCategory());
         dto.setDate(transaction.getDate());
+        dto.setLessonsPurchased(transaction.getLessonsPurchased());
+        dto.setExpiresAt(transaction.getExpiresAt());
+        dto.setCurrency(transaction.getCurrency());
         dto.setDescription(transaction.getDescription());
         dto.setApplyToStudentBalance(false);
         return dto;

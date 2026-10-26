@@ -20,10 +20,11 @@ test('administrator can review, disable, and restore a teacher account', async (
   expect(adminRegistration.status()).toBe(201);
   const admin = await adminRegistration.json() as { token: string };
 
-  const teacherRegistration = await request.post(`${apiBaseUrl}/auth/register`, {
+  const teacherCreation = await request.post(`${apiBaseUrl}/admin/teachers`, {
+    headers: { Authorization: `Bearer ${admin.token}` },
     data: { email: teacherEmail, password: teacherPassword, name: `E2E Teacher ${suffix}` }
   });
-  expect(teacherRegistration.status()).toBe(201);
+  expect(teacherCreation.status()).toBe(201);
 
   const teachersResponse = await request.get(`${apiBaseUrl}/admin/teachers`, {
     headers: { Authorization: `Bearer ${admin.token}` }

@@ -21,6 +21,10 @@ public class TransactionDto {
 
     @NotNull(message = "Transaction date is required")
     private LocalDate date;
+    @Min(value = 0, message = "Purchased lesson count cannot be negative")
+    private Integer lessonsPurchased;
+    private LocalDate expiresAt;
+    private String currency;
 
     @NotBlank(message = "Description is required")
     @Size(max = 255, message = "Description must not exceed 255 characters")
@@ -53,6 +57,12 @@ public class TransactionDto {
 
     public LocalDate getDate() { return date; }
     public void setDate(LocalDate date) { this.date = date; }
+    public Integer getLessonsPurchased() { return lessonsPurchased; }
+    public void setLessonsPurchased(Integer lessonsPurchased) { this.lessonsPurchased = lessonsPurchased; }
+    public LocalDate getExpiresAt() { return expiresAt; }
+    public void setExpiresAt(LocalDate expiresAt) { this.expiresAt = expiresAt; }
+    public String getCurrency() { return currency; }
+    public void setCurrency(String currency) { this.currency = currency; }
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }

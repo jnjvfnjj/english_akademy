@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { View, Text, Modal, Pressable, TouchableOpacity, ScrollView, TextInput } from 'react-native';
-import { Student } from '../store';
+import { Group, Student } from '../store';
 import StudentStatusBadge from './StudentStatusBadge';
 import { X, Search, Users, Plus, BookOpen, Clock, ArrowRight, Trash2 } from 'lucide-react-native';
 
 interface GroupDetailModalProps {
   visible: boolean;
   groupKey: string | null;
+  group?: Group;
   students: Student[];
   onClose: () => void;
   onSelectStudent: (student: Student) => void;
@@ -61,6 +62,7 @@ const GROUP_INFO: Record<string, { title: string; cefr: string; desc: string; co
 export default function GroupDetailModal({
   visible,
   groupKey,
+  group,
   students,
   onClose,
   onSelectStudent,
@@ -72,13 +74,19 @@ export default function GroupDetailModal({
 
   if (!groupKey) return null;
 
-  const info = GROUP_INFO[groupKey] || {
-    title: `Группа ${groupKey}`,
-    cefr: groupKey,
-    desc: `Языковая группа уровня ${groupKey}`,
+  const groupLevel = group?.level || groupKey;
+  const levelInfo = GROUP_INFO[groupLevel] || {
+    title: `Группа ${groupLevel}`,
+    cefr: groupLevel,
+    desc: `Языковая группа уровня ${groupLevel}`,
     color: 'border-indigo-400 bg-indigo-50',
     badgeBg: 'bg-indigo-600',
     textCol: 'text-indigo-700',
+  };
+  const info = {
+    ...levelInfo,
+    title: group?.title || levelInfo.title,
+    desc: group?.desc || levelInfo.desc,
   };
 
   const matchStudentLevel = (studentLevel: string, group: string) => {
@@ -92,7 +100,9 @@ export default function GroupDetailModal({
     );
   };
 
-  const groupStudents = students.filter(s => matchStudentLevel(s.level, groupKey));
+  const groupStudents = group?.studentIds
+    ? students.filter(student => group.studentIds?.includes(student.id))
+    : students.filter(s => !s.groupId && matchStudentLevel(s.level, groupKey));
 
   const filteredGroupStudents = groupStudents.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -177,7 +187,7 @@ export default function GroupDetailModal({
               <TouchableOpacity
                 onPress={() => {
                   onClose();
-                  onAddStudentToGroup(groupKey);
+                  onAddStudentToGroup(group?.id || groupKey);
                 }}
                 className="bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg flex-row items-center gap-1.5 shadow-xs"
               >
@@ -240,7 +250,7 @@ export default function GroupDetailModal({
 
                   <View className="flex-row items-center gap-3">
                     {/* Clickable Status Badge */}
-                    <StudentStatusBadge student={student} size="sm" />
+                    <StudentStatusBadge student={student} size="sm" interactive={false} />
 
                     <View className="items-end min-w-[55px]">
                       <Text className={`text-xs font-black ${student.balance > 0 ? 'text-slate-900' : 'text-rose-600'}`}>
@@ -266,7 +276,7 @@ export default function GroupDetailModal({
                     <TouchableOpacity
                       onPress={() => {
                         onClose();
-                        onAddStudentToGroup(groupKey);
+                        onAddStudentToGroup(group?.id || groupKey);
                       }}
                       className="mt-3 bg-indigo-50 border border-indigo-200 px-3.5 py-1.5 rounded-lg"
                     >
@@ -283,7 +293,7 @@ export default function GroupDetailModal({
             {onDeleteGroup ? (
               <TouchableOpacity
                 onPress={() => {
-                  onDeleteGroup(groupKey);
+                  onDeleteGroup(group?.id || groupKey);
                 }}
                 className="bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3.5 py-2 rounded-lg flex-row items-center gap-1.5"
               >

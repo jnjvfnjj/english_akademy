@@ -30,11 +30,6 @@ public class AuthController {
         return authService.login(request);
     }
 
-    @PostMapping("/register")
-    public ResponseEntity<AuthResponse> register(@Valid @RequestBody AuthRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(authService.registerTeacher(request));
-    }
-
     @PostMapping("/register/admin")
     public ResponseEntity<AuthResponse> registerAdmin(@Valid @RequestBody AdminRegistrationRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(
@@ -51,7 +46,8 @@ public class AuthController {
                 account.getEmail(),
                 account.getName(),
                 StaffAuthService.isAdmin(account.getRole()) ? "Admin" : "Teacher",
-                "SUPER_ADMIN".equals(account.getRole())
+                "SUPER_ADMIN".equals(account.getRole()),
+                account.canViewStudentPayments()
         );
     }
 

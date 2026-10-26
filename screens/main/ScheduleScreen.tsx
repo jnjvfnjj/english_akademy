@@ -1,27 +1,63 @@
 import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
-import { RootState, Group, addLesson, updateLessonStatus, deleteLesson, adjustBalance } from '../../store';
+import {
+  RootState,
+  addLesson,
+  updateLessonStatus,
+  deleteLesson,
+  mapApiGroup,
+  mapApiStudent,
+  mapApiWeeklySchedule,
+  replaceGroups,
+  replaceStudents,
+  replaceWeeklySchedules,
+  setSyncError
+} from '../../store';
 import { Calendar, Plus, CheckCircle, XCircle, Clock, Users, GraduationCap, Trash2 } from 'lucide-react-native';
+import { ApiError, ApiSchoolGroup, ApiStudent, ApiWeeklySchedule, apiRequest } from '../../services/api';
+
+const weekdays = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+const calendarTimes = Array.from({ length: 24 }, (_, index) => {
+  const hour = 8 + Math.floor(index / 2);
+  const minute = index % 2 === 0 ? '00' : '30';
+  return `${String(hour).padStart(2, '0')}:${minute}`;
+});
 
 export default function ScheduleScreen() {
   const dispatch = useDispatch();
   const lessons = useSelector((state: RootState) => state.lessons.list);
   const students = useSelector((state: RootState) => state.students.list);
   const groups = useSelector((state: RootState) => state.groups.list);
+  const weeklySchedules = useSelector((state: RootState) => state.weeklySchedules.list);
+  const token = useSelector((state: RootState) => state.auth.token);
+  const isAdmin = useSelector((state: RootState) => state.auth.user?.role === 'Admin');
 
   // States
   const [filter, setFilter] = useState<'All' | 'Scheduled' | 'Completed' | 'Cancelled'>('All');
   const [scheduleModal, setScheduleModal] = useState(false);
   const [detailModal, setDetailModal] = useState(false);
   const [selectedLesson, setSelectedLesson] = useState<any | null>(null);
+  const [weeklyModalOpen, setWeeklyModalOpen] = useState(false);
+  const [rosterModalOpen, setRosterModalOpen] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<(typeof weeklySchedules)[number] | null>(null);
+  const [slotGroupId, setSlotGroupId] = useState('');
+  const [slotDay, setSlotDay] = useState(1);
+  const [slotTime, setSlotTime] = useState('10:00');
+  const [slotTopic, setSlotTopic] = useState('');
+  const [slotDuration, setSlotDuration] = useState('1');
+  const [rosterSearch, setRosterSearch] = useState('');
+  const [rosterSaving, setRosterSaving] = useState(false);
 
   // Form states - Selecting GROUP instead of student
   const [selectedGroupId, setSelectedGroupId] = useState(groups.length > 0 ? groups[0].id : '');
-  const [selectedGroupName, setSelectedGroupName] = useState(groups.length > 0 ? groups[0].title : '');
-  const [date, setDate] = useState('2026-05-28');
+  const [date, setDate] = useState(() => {
+    const today = new Date();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${today.getFullYear()}-${month}-${day}`;
+  });
   const [time, setTime] = useState('14:00');
-  const [teacher, setTeacher] = useState('Елена Смирнова');
   const [topic, setTopic] = useState('');
   const [lessonNotes, setLessonNotes] = useState('');
 
@@ -35,23 +71,22 @@ export default function ScheduleScreen() {
   };
 
   const handleOpenScheduleModal = () => {
-    if (groups.length > 0) {
-      setSelectedGroupId(groups[0].id);
-      setSelectedGroupName(groups[0].title);
-    }
+    if (groups.length === 0) return;
+    setSelectedGroupId(groups[0].id);
     setTopic('');
     setScheduleModal(true);
   };
 
   const handleCreateLesson = () => {
-    if (!selectedGroupName || !topic.trim()) return;
+    const selectedGroup = groups.find(group => group.id === selectedGroupId);
+    if (!selectedGroup || !topic.trim()) return;
 
     dispatch(addLesson({
-      groupId: selectedGroupId,
-      groupName: selectedGroupName,
+      groupId: selectedGroup.id,
+      groupName: selectedGroup.title,
       date,
       time,
-      teacherName: teacher,
+      teacherName: selectedGroup.teacherName || '',
       topic: topic.trim(),
       duration: 1,
       status: 'Scheduled',
@@ -63,18 +98,6 @@ export default function ScheduleScreen() {
   };
 
   const handleCompleteLesson = (lesson: any) => {
-    // Find target group and students
-    const targetGroup = groups.find(g => g.id === lesson.groupId || g.title === lesson.groupName);
-    if (targetGroup) {
-      // Deduct 1 hour from all students in this group
-      const groupStudents = students.filter(s => matchStudentGroup(s.level, targetGroup.key));
-      groupStudents.forEach(st => {
-        dispatch(adjustBalance({ id: st.id, amount: -1 }));
-      });
-    } else if (lesson.studentId) {
-      dispatch(adjustBalance({ id: lesson.studentId, amount: -1 }));
-    }
-
     dispatch(updateLessonStatus({
       id: lesson.id,
       status: 'Completed',
@@ -103,15 +126,178 @@ export default function ScheduleScreen() {
     setSelectedLesson(null);
   };
 
+  const refreshScheduleData = async () => {
+    if (!token) return;
+    try {
+      const [scheduleData, groupData, studentData] = await Promise.all([
+        apiRequest<ApiWeeklySchedule[]>('/weekly-schedules', {}, token),
+        apiRequest<ApiSchoolGroup[]>('/groups', {}, token),
+        apiRequest<ApiStudent[]>('/students', {}, token)
+      ]);
+      dispatch(replaceWeeklySchedules(scheduleData.map(mapApiWeeklySchedule)));
+      dispatch(replaceGroups(groupData.map(mapApiGroup)));
+      dispatch(replaceStudents(studentData.map(mapApiStudent)));
+    } catch (error) {
+      dispatch(setSyncError(error instanceof ApiError ? error.message : 'Не удалось обновить недельное расписание.'));
+    }
+  };
+
+  const handleCreateWeeklySlot = async () => {
+    if (!token || !/^\d+$/.test(slotGroupId) || !slotTopic.trim()
+        || !/^([01]\d|2[0-3]):[0-5]\d$/.test(slotTime)
+        || !['00', '30'].includes(slotTime.slice(-2))
+        || !Number.isFinite(Number(slotDuration)) || Number(slotDuration) < 0.5 || Number(slotDuration) > 4) {
+      dispatch(setSyncError('Выберите группу, укажите тему, корректное время и длительность от 0,5 до 4 часов.'));
+      return;
+    }
+    try {
+      await apiRequest<ApiWeeklySchedule>('/weekly-schedules', {
+        method: 'POST',
+        body: JSON.stringify({
+          groupId: Number(slotGroupId),
+          dayOfWeek: slotDay,
+          time: slotTime,
+          topic: slotTopic.trim(),
+          duration: Number(slotDuration)
+        })
+      }, token);
+      setWeeklyModalOpen(false);
+      setSlotTopic('');
+      await refreshScheduleData();
+    } catch (error) {
+      dispatch(setSyncError(error instanceof ApiError ? error.message : 'Не удалось добавить повторяющееся занятие.'));
+    }
+  };
+
+  const updateRoster = async (studentId: string, enroll: boolean) => {
+    if (!token || !selectedSlot || !/^\d+$/.test(selectedSlot.groupId) || !/^\d+$/.test(studentId)) {
+      dispatch(setSyncError('Группа или ученик ещё не сохранены на сервере.'));
+      return;
+    }
+    setRosterSaving(true);
+    try {
+      await apiRequest<ApiSchoolGroup>(
+        `/groups/${encodeURIComponent(selectedSlot.groupId)}/students/${encodeURIComponent(studentId)}`,
+        { method: enroll ? 'POST' : 'DELETE' },
+        token
+      );
+      await refreshScheduleData();
+      setSelectedSlot(current => current ? {
+        ...current,
+        studentIds: enroll
+          ? [...new Set([...current.studentIds, studentId])]
+          : current.studentIds.filter(id => id !== studentId)
+      } : null);
+    } catch (error) {
+      dispatch(setSyncError(error instanceof ApiError ? error.message : 'Не удалось изменить список учеников группы.'));
+    } finally {
+      setRosterSaving(false);
+    }
+  };
+
+  const handleDeleteWeeklySlot = async () => {
+    if (!token || !selectedSlot) return;
+    try {
+      await apiRequest<void>(`/weekly-schedules/${encodeURIComponent(selectedSlot.id)}`, { method: 'DELETE' }, token);
+      setRosterModalOpen(false);
+      setSelectedSlot(null);
+      await refreshScheduleData();
+    } catch (error) {
+      dispatch(setSyncError(error instanceof ApiError ? error.message : 'Не удалось удалить занятие из недельного расписания.'));
+    }
+  };
+
   const statusLabels: Record<string, string> = {
     All: 'Все уроки',
     Scheduled: 'Запланировано',
     Completed: 'Проведено',
     Cancelled: 'Отменено'
   };
+  const selectedSlotGroup = groups.find(group => group.id === selectedSlot?.groupId);
+  const rosterIds = selectedSlot?.studentIds || selectedSlotGroup?.studentIds || [];
+  const rosterStudents = students.filter(student =>
+    rosterIds.includes(student.id) || student.groupId === selectedSlot?.groupId
+  );
+  const availableStudents = students.filter(student =>
+    !rosterIds.includes(student.id)
+      && student.groupId !== selectedSlot?.groupId
+      && student.name.toLowerCase().includes(rosterSearch.toLowerCase())
+  );
 
   return (
     <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 12, paddingBottom: 80, flexGrow: 1 }}>
+      <View className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <View className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
+          <View>
+            <Text className="text-xl font-bold text-slate-800">Недельное расписание</Text>
+            <Text className="mt-1 text-xs text-slate-500">Повторяющиеся занятия · нажмите на ячейку, чтобы управлять списком учеников.</Text>
+          </View>
+          {groups.length > 0 && (
+            <TouchableOpacity
+              onPress={() => {
+                setSlotGroupId(groups[0].id);
+                setWeeklyModalOpen(true);
+              }}
+              className="flex-row items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2"
+            >
+              <Plus size={16} color="#ffffff" />
+              <Text className="text-xs font-bold text-white">Добавить занятие</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator>
+          <View>
+            <View className="flex-row border-b border-slate-200 bg-slate-50">
+              <View style={{ width: 76 }} className="justify-center p-2">
+                <Text className="text-xs font-bold text-slate-500">Время</Text>
+              </View>
+              {weekdays.map(day => (
+                <View key={day} style={{ width: 160 }} className="items-center justify-center border-l border-slate-200 p-2">
+                  <Text className="text-xs font-bold text-slate-700">{day}</Text>
+                </View>
+              ))}
+            </View>
+            {calendarTimes.map(timeLabel => (
+              <View key={timeLabel} className="flex-row border-b border-slate-100">
+                <View style={{ width: 76, minHeight: 70 }} className="justify-start p-2">
+                  <Text className="text-xs font-semibold text-slate-500">{timeLabel}</Text>
+                </View>
+                {weekdays.map((day, dayIndex) => {
+                  const slots = weeklySchedules.filter(slot =>
+                    slot.dayOfWeek === dayIndex + 1 && slot.time === timeLabel
+                  );
+                  return (
+                    <View key={`${day}-${timeLabel}`} style={{ width: 160, minHeight: 70 }} className="gap-1 border-l border-slate-100 p-1">
+                      {slots.map(slot => (
+                        <TouchableOpacity
+                          key={slot.id}
+                          onPress={() => {
+                            setSelectedSlot(slot);
+                            setRosterSearch('');
+                            setRosterModalOpen(true);
+                          }}
+                          className="rounded-lg border border-indigo-200 bg-indigo-50 p-2"
+                        >
+                          <Text className="text-[11px] font-extrabold text-indigo-900">{slot.groupName}</Text>
+                          <Text className="mt-0.5 text-[10px] font-semibold text-indigo-700">{slot.topic}</Text>
+                          <Text className="mt-0.5 text-[10px] text-slate-600">{slot.teacherName}</Text>
+                          <View className="mt-1 flex-row items-center justify-between">
+                            <Text className="text-[10px] font-bold text-slate-500">{slot.time}</Text>
+                            <Text className="text-[10px] text-slate-500">{slot.studentIds.length} уч.</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+        {weeklySchedules.length === 0 && (
+          <Text className="py-6 text-center text-sm text-slate-400">Пока нет повторяющихся занятий. Добавьте занятие, чтобы заполнить календарь.</Text>
+        )}
+      </View>
       <View className="flex-row flex-wrap gap-3 md:gap-6 lg:flex-nowrap w-full">
       
       {/* LEFTSIDE: Main Daily List scheduler */}
@@ -123,13 +309,19 @@ export default function ScheduleScreen() {
               Планирование уроков для учебных групп и учет посещаемости.
             </Text>
           </View>
-          <TouchableOpacity 
-            onPress={handleOpenScheduleModal}
-            className="bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg flex-row items-center gap-2 shadow"
-          >
-            <Plus size={16} color="#ffffff" />
-            <Text className="text-white text-xs font-bold">Запланировать урок группы</Text>
-          </TouchableOpacity>
+          {groups.length > 0 ? (
+            <TouchableOpacity
+              onPress={handleOpenScheduleModal}
+              className="bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg flex-row items-center gap-2 shadow"
+            >
+              <Plus size={16} color="#ffffff" />
+              <Text className="text-white text-xs font-bold">Запланировать урок группы</Text>
+            </TouchableOpacity>
+          ) : (
+            <Text className="text-xs text-slate-500">
+              {isAdmin ? 'Сначала создайте учебную группу на панели управления.' : 'Вам пока не назначили учебные группы.'}
+            </Text>
+          )}
         </View>
 
         {/* Tab filters */}
@@ -314,15 +506,15 @@ export default function ScheduleScreen() {
                   </Text>
                   <View className="flex-row flex-wrap gap-2">
                     {groups.map((g) => {
-                      const count = students.filter(s => matchStudentGroup(s.level, g.key)).length;
+                      const count = g.studentIds
+                        ? students.filter(student => g.studentIds?.includes(student.id)).length
+                        : students.filter(student => !student.groupId && matchStudentGroup(student.level, g.key)).length;
                       const isSelected = selectedGroupId === g.id;
                       return (
                         <TouchableOpacity 
                           key={g.id} 
                           onPress={() => {
                             setSelectedGroupId(g.id);
-                            setSelectedGroupName(g.title);
-                            if (g.teacherName) setTeacher(g.teacherName);
                           }}
                           className={`p-3 rounded-xl border flex-1 min-w-[140px] flex-row justify-between items-center ${
                             isSelected 
@@ -388,12 +580,11 @@ export default function ScheduleScreen() {
                 {/* TEACHER */}
                 <View>
                   <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Преподаватель</Text>
-                  <TextInput 
-                    value={teacher} 
-                    onChangeText={setTeacher} 
-                    placeholder="Елена Смирнова" 
-                    className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" 
-                  />
+                  <View className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <Text className="text-sm font-semibold text-slate-800">
+                      {groups.find(group => group.id === selectedGroupId)?.teacherName || 'Преподаватель группы'}
+                    </Text>
+                  </View>
                 </View>
               </View>
 
@@ -406,6 +597,128 @@ export default function ScheduleScreen() {
                 </TouchableOpacity>
               </View>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal animationType="slide" transparent visible={weeklyModalOpen} onRequestClose={() => setWeeklyModalOpen(false)}>
+        <View className="flex-1 justify-center items-center bg-black/60 p-4">
+          <View className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            <Text className="mb-1 text-lg font-bold text-slate-900">Повторяющееся занятие</Text>
+            <Text className="mb-4 text-xs text-slate-500">Урок будет повторяться каждую неделю в выбранный день и час.</Text>
+            <Text className="mb-1 text-xs font-semibold uppercase text-slate-500">Группа / курс</Text>
+            <View className="mb-4 flex-row flex-wrap gap-2">
+              {groups.map(group => (
+                <TouchableOpacity
+                  key={group.id}
+                  onPress={() => setSlotGroupId(group.id)}
+                  className={`rounded-lg border px-3 py-2 ${slotGroupId === group.id ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200'}`}
+                >
+                  <Text className="text-xs font-semibold text-slate-700">{group.title}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text className="mb-2 text-xs font-semibold uppercase text-slate-500">День недели</Text>
+            <View className="mb-4 flex-row flex-wrap gap-2">
+              {weekdays.map((day, index) => (
+                <TouchableOpacity
+                  key={day}
+                  onPress={() => setSlotDay(index + 1)}
+                  className={`rounded-lg border px-2.5 py-2 ${slotDay === index + 1 ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200'}`}
+                >
+                  <Text className="text-[11px] font-semibold text-slate-700">{day}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput value={slotTopic} onChangeText={setSlotTopic} placeholder="Предмет / название занятия" className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800" />
+            <View className="mb-5 flex-row gap-3">
+              <View className="flex-1">
+                <Text className="mb-1 text-xs font-semibold uppercase text-slate-500">Время</Text>
+                <TextInput value={slotTime} onChangeText={setSlotTime} placeholder="10:00" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800" />
+              </View>
+              <View className="flex-1">
+                <Text className="mb-1 text-xs font-semibold uppercase text-slate-500">Длительность, ч</Text>
+                <TextInput value={slotDuration} onChangeText={setSlotDuration} keyboardType="decimal-pad" placeholder="1" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800" />
+              </View>
+            </View>
+            <View className="flex-row justify-end gap-3">
+              <TouchableOpacity onPress={() => setWeeklyModalOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2.5">
+                <Text className="text-xs font-semibold text-slate-600">Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => void handleCreateWeeklySlot()} className="rounded-lg bg-indigo-600 px-5 py-2.5">
+                <Text className="text-xs font-bold text-white">Сохранить в календарь</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal animationType="fade" transparent visible={rosterModalOpen} onRequestClose={() => setRosterModalOpen(false)}>
+        <View className="flex-1 justify-center items-center bg-black/60 p-4">
+          <View className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            {selectedSlot && (
+              <>
+                <Text className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  {weekdays[selectedSlot.dayOfWeek - 1]} · {selectedSlot.time}
+                </Text>
+                <Text className="mt-1 text-xl font-bold text-slate-900">{selectedSlot.groupName}</Text>
+                <Text className="mt-1 text-sm font-semibold text-indigo-700">{selectedSlot.topic} · {selectedSlot.teacherName}</Text>
+                <View className="my-4 border-t border-slate-100" />
+                <Text className="mb-2 text-xs font-bold uppercase text-slate-500">Ученики и остаток занятий</Text>
+                <ScrollView className="max-h-56">
+                  {rosterStudents.map(student => (
+                    <View key={student.id} className="mb-2 flex-row items-center justify-between rounded-lg bg-slate-50 p-3">
+                      <View className="flex-1 pr-2">
+                        <Text className="text-sm font-semibold text-slate-800">{student.name}</Text>
+                        <Text className={`mt-0.5 text-xs font-bold ${student.balance <= 2 ? 'text-rose-600' : 'text-slate-500'}`}>
+                          Осталось: {student.balance} занятий
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        disabled={rosterSaving}
+                        onPress={() => void updateRoster(student.id, false)}
+                        className="rounded-md border border-rose-200 bg-white px-3 py-2"
+                      >
+                        <Text className="text-xs font-bold text-rose-600">Убрать</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  {rosterStudents.length === 0 && <Text className="py-2 text-sm text-slate-400">В группе пока нет учеников.</Text>}
+                </ScrollView>
+                <TextInput
+                  value={rosterSearch}
+                  onChangeText={setRosterSearch}
+                  placeholder="Найти ученика для добавления"
+                  className="my-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800"
+                />
+                <ScrollView className="max-h-40">
+                  {availableStudents.slice(0, 8).map(student => (
+                    <TouchableOpacity
+                      key={student.id}
+                      disabled={rosterSaving}
+                      onPress={() => void updateRoster(student.id, true)}
+                      className="mb-2 flex-row items-center justify-between rounded-lg border border-slate-100 p-3"
+                    >
+                      <View>
+                        <Text className="text-sm font-semibold text-slate-800">{student.name}</Text>
+                        <Text className="text-xs text-slate-500">Осталось: {student.balance} занятий</Text>
+                      </View>
+                      <Plus size={16} color="#4f46e5" />
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+                <View className="mt-4 flex-row justify-between">
+                  {isAdmin && !lessons.some(lesson => lesson.weeklyScheduleId === selectedSlot.id) ? (
+                    <TouchableOpacity onPress={() => void handleDeleteWeeklySlot()} className="rounded-lg border border-rose-200 px-3 py-2">
+                      <Text className="text-xs font-semibold text-rose-600">Удалить занятие</Text>
+                    </TouchableOpacity>
+                  ) : <View />}
+                  <TouchableOpacity onPress={() => setRosterModalOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2">
+                    <Text className="text-xs font-semibold text-slate-600">Закрыть</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         </View>
       </Modal>

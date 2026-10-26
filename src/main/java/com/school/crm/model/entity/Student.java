@@ -15,7 +15,7 @@ public class Student {
     @Column(nullable = false)
     private String name;
 
-    @Column(nullable = false, unique = true)
+    @Column(unique = true)
     private String email;
 
     private String phone;
@@ -23,8 +23,19 @@ public class Student {
     private int balance; // Class hours left
     private int totalClasses; // Total hours booked or completed
     private double totalPaid; // Total money paid
+    private String educationFormat;
+    @Column(columnDefinition = "TEXT")
+    private String courses;
+    private java.time.LocalDate paymentExpiresAt;
+    private java.time.LocalDate paymentDate;
+    private double paymentAmount;
+    private String paymentCurrency;
     private String ageGroup; // Kids, Teens, Adults
     private String status; // Active, On Hold, Completed
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "group_id")
+    private SchoolGroup group;
 
     @Column(columnDefinition = "TEXT")
     private String notes;
@@ -34,6 +45,14 @@ public class Student {
 
     @OneToMany(mappedBy = "student", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Transaction> transactions = new ArrayList<>();
+
+    @ManyToMany
+    @JoinTable(
+            name = "student_group_enrollments",
+            joinColumns = @JoinColumn(name = "student_id"),
+            inverseJoinColumns = @JoinColumn(name = "group_id")
+    )
+    private List<SchoolGroup> enrolledGroups = new ArrayList<>();
 
     public Student() {}
 
@@ -89,12 +108,26 @@ public class Student {
 
     public double getTotalPaid() { return totalPaid; }
     public void setTotalPaid(double totalPaid) { this.totalPaid = totalPaid; }
+    public String getEducationFormat() { return educationFormat; }
+    public void setEducationFormat(String educationFormat) { this.educationFormat = educationFormat; }
+    public String getCourses() { return courses; }
+    public void setCourses(String courses) { this.courses = courses; }
+    public java.time.LocalDate getPaymentExpiresAt() { return paymentExpiresAt; }
+    public void setPaymentExpiresAt(java.time.LocalDate paymentExpiresAt) { this.paymentExpiresAt = paymentExpiresAt; }
+    public java.time.LocalDate getPaymentDate() { return paymentDate; }
+    public void setPaymentDate(java.time.LocalDate paymentDate) { this.paymentDate = paymentDate; }
+    public double getPaymentAmount() { return paymentAmount; }
+    public void setPaymentAmount(double paymentAmount) { this.paymentAmount = paymentAmount; }
+    public String getPaymentCurrency() { return paymentCurrency; }
+    public void setPaymentCurrency(String paymentCurrency) { this.paymentCurrency = paymentCurrency; }
 
     public String getAgeGroup() { return ageGroup; }
     public void setAgeGroup(String ageGroup) { this.ageGroup = ageGroup; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public SchoolGroup getGroup() { return group; }
+    public void setGroup(SchoolGroup group) { this.group = group; }
 
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
@@ -104,4 +137,6 @@ public class Student {
 
     public List<Transaction> getTransactions() { return transactions; }
     public void setTransactions(List<Transaction> transactions) { this.transactions = transactions; }
+    public List<SchoolGroup> getEnrolledGroups() { return enrolledGroups; }
+    public void setEnrolledGroups(List<SchoolGroup> enrolledGroups) { this.enrolledGroups = enrolledGroups; }
 }

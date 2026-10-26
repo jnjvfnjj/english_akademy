@@ -15,6 +15,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 
 import java.util.List;
 
@@ -33,13 +34,14 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
                                 "/api/auth/login",
-                                "/api/auth/register",
                                 "/api/auth/register/admin",
                                 "/api/health"
                         ).permitAll()
                         .requestMatchers("/api/admin/users", "/api/admin/users/**").hasRole("SUPER_ADMIN")
                         .requestMatchers("/api/admin/teachers", "/api/admin/teachers/**").hasRole("ADMIN")
                         .requestMatchers("/api/transactions/**", "/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/students/**", "/api/groups/**", "/api/lessons/**").authenticated()
+                        .requestMatchers("/api/students/**", "/api/groups/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(bearerTokenFilter, UsernamePasswordAuthenticationFilter.class)

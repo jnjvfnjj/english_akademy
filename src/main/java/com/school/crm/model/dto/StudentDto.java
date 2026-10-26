@@ -1,6 +1,8 @@
 package com.school.crm.model.dto;
 
 import jakarta.validation.constraints.*;
+import java.time.LocalDate;
+import java.util.List;
 
 public class StudentDto {
 
@@ -10,7 +12,6 @@ public class StudentDto {
     @Size(min = 2, max = 100, message = "Name must be between 2 and 100 characters")
     private String name;
 
-    @NotBlank(message = "Email is required")
     @Email(message = "Invalid email format")
     private String email;
 
@@ -32,6 +33,16 @@ public class StudentDto {
     private String status;
 
     private String notes;
+    private Long groupId;
+    private String groupName;
+    private List<Long> groupIds;
+    private String educationFormat;
+    private List<String> courses;
+    private LocalDate paymentExpiresAt;
+    private LocalDate paymentDate;
+    @PositiveOrZero
+    private double paymentAmount;
+    private String paymentCurrency;
 
     public StudentDto() {}
 
@@ -68,4 +79,22 @@ public class StudentDto {
 
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+    public Long getGroupId() { return groupId; }
+    public void setGroupId(Long groupId) { this.groupId = groupId; }
+    public String getGroupName() { return groupName; }
+    public void setGroupName(String groupName) { this.groupName = groupName; }
+    public List<Long> getGroupIds() { return groupIds; }
+    public void setGroupIds(List<Long> groupIds) { this.groupIds = groupIds; }
+    public String getEducationFormat() { return educationFormat; }
+    public void setEducationFormat(String educationFormat) { this.educationFormat = educationFormat; }
+    public List<String> getCourses() { return courses; }
+    public void setCourses(List<String> courses) { this.courses = courses; }
+    public LocalDate getPaymentExpiresAt() { return paymentExpiresAt; }
+    public void setPaymentExpiresAt(LocalDate paymentExpiresAt) { this.paymentExpiresAt = paymentExpiresAt; }
+    public LocalDate getPaymentDate() { return paymentDate; }
+    public void setPaymentDate(LocalDate paymentDate) { this.paymentDate = paymentDate; }
+    public double getPaymentAmount() { return paymentAmount; }
+    public void setPaymentAmount(double paymentAmount) { this.paymentAmount = paymentAmount; }
+    public String getPaymentCurrency() { return paymentCurrency; }
+    public void setPaymentCurrency(String paymentCurrency) { this.paymentCurrency = paymentCurrency; }
 }

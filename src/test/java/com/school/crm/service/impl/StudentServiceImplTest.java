@@ -13,6 +13,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.LocalDate;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -84,5 +85,54 @@ public class StudentServiceImplTest {
 
         assertThrows(IllegalStateException.class, () -> studentService.createStudent(studentDto));
         verify(studentRepository, never()).save(any(Student.class));
+    }
+
+    @Test
+    void createStudentStoresExplicitPaymentAndOneMonthExpiry() {
+        studentDto.setBalance(12);
+        studentDto.setTotalClasses(12);
+        studentDto.setPaymentAmount(2100);
+        studentDto.setPaymentDate(LocalDate.of(2025, 10, 1));
+        studentDto.setEducationFormat("Продлёнка");
+        studentDto.setCourses(java.util.List.of("Английский язык", "Математика"));
+        when(studentRepository.findByEmail(any())).thenReturn(Optional.empty());
+        when(studentRepository.save(any(Student.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(transactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        StudentDto result = studentService.createStudent(studentDto);
+
+        assertEquals(LocalDate.of(2025, 10, 1), result.getPaymentDate());
+        assertEquals(2100, result.getPaymentAmount());
+        assertEquals(LocalDate.of(2025, 11, 1), result.getPaymentExpiresAt());
+        assertEquals("KGS", result.getPaymentCurrency());
+        assertEquals(12, result.getBalance());
+        assertEquals(java.util.List.of("Английский язык", "Математика"), result.getCourses());
+        verify(transactionRepository).save(argThat(payment ->
+                payment.getAmount() == 2100
+                        && payment.getDate().equals(LocalDate.of(2025, 10, 1))
+                        && payment.getExpiresAt().equals(LocalDate.of(2025, 11, 1))
+                        && payment.getLessonsPurchased() == 12));
+    }
+
+    @Test
+    void updateStudentPersistsPaymentFieldsAndPackageBalance() {
+        when(studentRepository.findById(1L)).thenReturn(Optional.of(student));
+        when(studentRepository.save(any(Student.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        studentDto.setBalance(12);
+        studentDto.setTotalClasses(12);
+        studentDto.setTotalPaid(2100);
+        studentDto.setPaymentAmount(2100);
+        studentDto.setPaymentDate(LocalDate.of(2025, 10, 1));
+        studentDto.setPaymentExpiresAt(LocalDate.of(2025, 11, 1));
+        studentDto.setPaymentCurrency("KGS");
+
+        StudentDto result = studentService.updateStudent(1L, studentDto);
+
+        assertEquals(12, student.getBalance());
+        assertEquals(2100, student.getTotalPaid());
+        assertEquals(LocalDate.of(2025, 10, 1), result.getPaymentDate());
+        assertEquals(2100, result.getPaymentAmount());
+        assertEquals(LocalDate.of(2025, 11, 1), result.getPaymentExpiresAt());
+        assertEquals("KGS", result.getPaymentCurrency());
     }
 }

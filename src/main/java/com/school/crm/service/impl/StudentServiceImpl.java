@@ -6,6 +6,7 @@ import com.school.crm.model.dto.StudentDto;
 import com.school.crm.model.entity.Student;
 import com.school.crm.model.entity.StudentDeletionNotice;
 import com.school.crm.repository.StudentRepository;
+import com.school.crm.repository.SchoolGroupRepository;
 import com.school.crm.repository.StudentDeletionNoticeRepository;
 import com.school.crm.repository.TransactionRepository;
 import com.school.crm.service.StudentService;
@@ -17,6 +18,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -24,6 +28,7 @@ public class StudentServiceImpl implements StudentService {
 
     private static final Logger log = LoggerFactory.getLogger(StudentServiceImpl.class);
     private final StudentRepository studentRepository;
+    private final SchoolGroupRepository groupRepository;
     private final StudentDeletionNoticeRepository deletionNoticeRepository;
     private final TransactionRepository transactionRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -31,11 +36,13 @@ public class StudentServiceImpl implements StudentService {
     // Constructor-based Dependency Injection only! (Mandatory rule 3.3)
     public StudentServiceImpl(
             StudentRepository studentRepository,
+            SchoolGroupRepository groupRepository,
             StudentDeletionNoticeRepository deletionNoticeRepository,
             TransactionRepository transactionRepository,
             ApplicationEventPublisher eventPublisher
     ) {
         this.studentRepository = studentRepository;
+        this.groupRepository = groupRepository;
         this.deletionNoticeRepository = deletionNoticeRepository;
         this.transactionRepository = transactionRepository;
         this.eventPublisher = eventPublisher;
@@ -61,13 +68,19 @@ public class StudentServiceImpl implements StudentService {
     @Override
     @Transactional
     public StudentDto createStudent(StudentDto dto) {
-        if (studentRepository.findByEmail(dto.getEmail()).isPresent()) {
+        if (dto.getPaymentAmount() > 0 && (dto.getBalance() <= 0
+                || dto.getEducationFormat() == null || dto.getEducationFormat().isBlank()
+                || dto.getCourses() == null || dto.getCourses().stream().allMatch(course -> course == null || course.isBlank()))) {
+            throw new IllegalArgumentException("Укажите формат, хотя бы один курс и положительное количество оплаченных занятий.");
+        }
+        String email = dto.getEmail() == null || dto.getEmail().isBlank() ? null : dto.getEmail().trim();
+        if (email != null && studentRepository.findByEmail(email).isPresent()) {
             throw new IllegalStateException("Email " + dto.getEmail() + " is already registered!");
         }
 
         Student student = new Student(
                 dto.getName(),
-                dto.getEmail(),
+                email,
                 dto.getPhone(),
                 dto.getLevel(),
                 dto.getBalance(),
@@ -76,11 +89,43 @@ public class StudentServiceImpl implements StudentService {
                 dto.getNotes()
         );
 
-        // Precalculate total paid and total classes based on initial package rate ($25/hr default)
-        student.setTotalClasses(dto.getBalance());
-        student.setTotalPaid(dto.getBalance() * 25.0);
+        student.setTotalClasses(dto.getTotalClasses() > 0 ? dto.getTotalClasses() : dto.getBalance());
+        student.setTotalPaid(dto.getPaymentAmount() > 0 ? dto.getPaymentAmount()
+                : dto.getTotalPaid() > 0 ? dto.getTotalPaid() : dto.getBalance() * 25.0);
+        student.setEducationFormat(dto.getEducationFormat());
+        student.setCourses(dto.getCourses() == null ? null : dto.getCourses().stream()
+                .filter(Objects::nonNull).map(String::trim).filter(course -> !course.isEmpty())
+                .distinct().collect(Collectors.joining("\n")));
+        LocalDate paymentDate = dto.getPaymentDate() == null ? LocalDate.now() : dto.getPaymentDate();
+        LocalDate expiresAt = dto.getPaymentExpiresAt();
+        if (expiresAt == null && dto.getPaymentAmount() > 0) expiresAt = paymentDate.plusMonths(1);
+        student.setPaymentDate(dto.getPaymentAmount() > 0 ? paymentDate : null);
+        student.setPaymentAmount(dto.getPaymentAmount());
+        student.setPaymentExpiresAt(expiresAt);
+        student.setPaymentCurrency(dto.getPaymentAmount() > 0 ? "KGS" : dto.getPaymentCurrency());
+        student.setGroup(resolveGroup(dto.getGroupId()));
+        if (dto.getGroupIds() != null) {
+            student.setEnrolledGroups(new ArrayList<>(groupRepository.findAllById(dto.getGroupIds())));
+            if (student.getEnrolledGroups().size() != dto.getGroupIds().stream().distinct().count()) {
+                throw new IllegalArgumentException("Одна или несколько выбранных групп не найдены.");
+            }
+        }
 
         Student saved = studentRepository.save(student);
+        if (dto.getPaymentAmount() > 0) {
+            com.school.crm.model.entity.Transaction payment = new com.school.crm.model.entity.Transaction(
+                    saved,
+                    dto.getPaymentAmount(),
+                    "Income",
+                    "Tuition",
+                    paymentDate,
+                    "Оплата обучения: " + saved.getBalance() + " занятий"
+            );
+            payment.setLessonsPurchased(saved.getBalance());
+            payment.setExpiresAt(expiresAt);
+            payment.setCurrency("KGS");
+            transactionRepository.save(payment);
+        }
         log.info("[Service Log] Successfully created student profile: {}", saved.getName());
         return convertToDto(saved);
     }
@@ -92,12 +137,34 @@ public class StudentServiceImpl implements StudentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with ID: " + id));
 
         student.setName(dto.getName());
-        student.setEmail(dto.getEmail());
+        student.setEmail(dto.getEmail() == null || dto.getEmail().isBlank() ? null : dto.getEmail().trim());
         student.setPhone(dto.getPhone());
         student.setLevel(dto.getLevel());
         student.setAgeGroup(dto.getAgeGroup());
         student.setStatus(dto.getStatus());
         student.setNotes(dto.getNotes());
+        student.setEducationFormat(dto.getEducationFormat());
+        student.setCourses(dto.getCourses() == null ? null : dto.getCourses().stream()
+                .filter(Objects::nonNull).map(String::trim).filter(course -> !course.isEmpty())
+                .distinct().collect(Collectors.joining("\n")));
+        if (dto.getPaymentDate() != null && dto.getPaymentAmount() > 0) {
+            student.setBalance(dto.getBalance());
+            student.setTotalClasses(dto.getTotalClasses());
+            student.setTotalPaid(dto.getTotalPaid());
+            student.setPaymentDate(dto.getPaymentDate());
+            student.setPaymentAmount(dto.getPaymentAmount());
+            student.setPaymentExpiresAt(dto.getPaymentExpiresAt());
+            student.setPaymentCurrency(dto.getPaymentCurrency());
+        }
+        student.setGroup(resolveGroup(dto.getGroupId()));
+        if (dto.getGroupIds() != null) {
+            List<com.school.crm.model.entity.SchoolGroup> enrolledGroups =
+                    new ArrayList<>(groupRepository.findAllById(dto.getGroupIds()));
+            if (enrolledGroups.size() != dto.getGroupIds().stream().distinct().count()) {
+                throw new IllegalArgumentException("Одна или несколько выбранных групп не найдены.");
+            }
+            student.setEnrolledGroups(enrolledGroups);
+        }
 
         Student updated = studentRepository.save(student);
         return convertToDto(updated);
@@ -162,9 +229,32 @@ public class StudentServiceImpl implements StudentService {
         dto.setBalance(student.getBalance());
         dto.setTotalClasses(student.getTotalClasses());
         dto.setTotalPaid(student.getTotalPaid());
+        dto.setEducationFormat(student.getEducationFormat());
+        dto.setCourses(student.getCourses() == null || student.getCourses().isBlank()
+                ? List.of() : List.of(student.getCourses().split("\n")));
+        dto.setPaymentExpiresAt(student.getPaymentExpiresAt());
+        dto.setPaymentDate(student.getPaymentDate());
+        dto.setPaymentAmount(student.getPaymentAmount());
+        dto.setPaymentCurrency(student.getPaymentCurrency());
         dto.setAgeGroup(student.getAgeGroup());
         dto.setStatus(student.getStatus());
         dto.setNotes(student.getNotes());
+        if (student.getGroup() != null) {
+            dto.setGroupId(student.getGroup().getId());
+            dto.setGroupName(student.getGroup().getTitle());
+        }
+        List<Long> groupIds = new ArrayList<>(student.getEnrolledGroups().stream()
+                .map(group -> group.getId()).toList());
+        if (student.getGroup() != null && !groupIds.contains(student.getGroup().getId())) {
+            groupIds.add(student.getGroup().getId());
+        }
+        dto.setGroupIds(groupIds);
         return dto;
+    }
+
+    private com.school.crm.model.entity.SchoolGroup resolveGroup(Long groupId) {
+        if (groupId == null) return null;
+        return groupRepository.findById(groupId)
+                .orElseThrow(() -> new ResourceNotFoundException("Group not found with ID: " + groupId));
     }
 }

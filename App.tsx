@@ -7,12 +7,16 @@ import { StatusBar } from 'expo-status-bar';
 import AppNavigator from './navigation/AppNavigator';
 import {
   ApiError,
+  ApiLesson,
+  ApiSchoolGroup,
+  ApiStaffUser,
   ApiStudent,
   ApiTransaction,
+  ApiWeeklySchedule,
+  ApiPaymentReminder,
   StudentDeletionNotice,
   apiRequest,
   clearAuthToken,
-  createStudentRequest,
   loadAuthToken,
   saveAuthToken,
 } from './services/api';
@@ -21,11 +25,19 @@ import {
   RootState,
   login,
   mapApiStudent,
+  mapApiGroup,
+  mapApiLesson,
   replaceStudents,
+  replaceGroups,
+  replaceLessons,
   replaceTransactions,
   mapApiTransaction,
+  mapApiWeeklySchedule,
+  replaceWeeklySchedules,
+  setPaymentReminders,
   setDeletionNotices,
   setSyncError,
+  setPaymentVisibility,
   store,
 } from './store';
 
@@ -33,8 +45,10 @@ function NotificationBanner() {
   const error = useSelector((state: RootState) => state.sync.error);
   const user = useSelector((state: RootState) => state.auth.user);
   const notices = useSelector((state: RootState) => state.notifications.deletions);
+  const paymentReminders = useSelector((state: RootState) => state.notifications.paymentReminders);
   const [visibleNoticeId, setVisibleNoticeId] = useState<number | null>(null);
   const [dismissed, setDismissed] = useState<number[]>([]);
+  const [dismissedPaymentReminders, setDismissedPaymentReminders] = useState<string[]>([]);
 
   useEffect(() => {
     if (user?.role !== 'Admin') return;
@@ -45,7 +59,10 @@ function NotificationBanner() {
   }, [dismissed, notices, user?.role]);
 
   const currentNotice = notices.find(notice => notice.id === visibleNoticeId);
-  if (!error && (!currentNotice || user?.role !== 'Admin')) return null;
+  const currentPaymentReminder = paymentReminders.find(reminder =>
+    !dismissedPaymentReminders.includes(`${reminder.studentId}:${reminder.expiresAt || ''}`)
+  );
+  if (!error && (!currentNotice || user?.role !== 'Admin') && (!currentPaymentReminder || user?.role !== 'Admin')) return null;
 
   return (
     <View
@@ -84,6 +101,25 @@ function NotificationBanner() {
           <Text className="mt-1 text-[10px] text-slate-500">Нажмите, чтобы закрыть</Text>
         </TouchableOpacity>
       ) : null}
+      {currentPaymentReminder && user?.role === 'Admin' ? (
+        <TouchableOpacity
+          accessibilityRole="button"
+          onPress={() => setDismissedPaymentReminders(current => [
+            ...current,
+            `${currentPaymentReminder.studentId}:${currentPaymentReminder.expiresAt || ''}`
+          ])}
+          className="rounded-xl border border-amber-200 bg-white px-4 py-3 shadow-lg"
+        >
+          <Text className="text-sm font-bold text-amber-800">Пора продлить оплату</Text>
+          <Text className="mt-1 text-xs text-slate-700">
+            {currentPaymentReminder.studentName} · осталось занятий: {currentPaymentReminder.remainingLessons}
+          </Text>
+          {currentPaymentReminder.expiresAt ? (
+            <Text className="mt-1 text-[10px] text-slate-500">Оплата до {currentPaymentReminder.expiresAt}</Text>
+          ) : null}
+          <Text className="mt-1 text-[10px] text-slate-500">Нажмите, чтобы закрыть</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -107,6 +143,7 @@ function AppShell() {
           name: string;
           role: 'Admin' | 'Teacher';
           superAdmin: boolean;
+          canViewStudentPayments: boolean;
         }>(
           '/auth/me',
           {},
@@ -140,51 +177,32 @@ function AppShell() {
     let cancelled = false;
     let refreshing = false;
 
-    const refreshStudents = async (allowInitialImport: boolean) => {
+    const refreshWorkspace = async () => {
       if (refreshing) return;
       refreshing = true;
       try {
-        const localStudents = store.getState().students.list;
-        let remoteStudents = await apiRequest<ApiStudent[]>('/students', {}, token);
-        if (allowInitialImport && remoteStudents.length === 0 && localStudents.length > 0) {
-          for (const student of localStudents) {
-            try {
-              await apiRequest<ApiStudent>('/students', {
-                method: 'POST',
-                body: JSON.stringify(createStudentRequest(student)),
-              }, token);
-            } catch (error) {
-              if (!(error instanceof ApiError) || !error.message.includes('already registered')) throw error;
-            }
-          }
-          remoteStudents = await apiRequest<ApiStudent[]>('/students', {}, token);
-        }
+        const [account, remoteStudents, remoteGroups, remoteLessons, remoteSchedules] = await Promise.all([
+          apiRequest<ApiStaffUser>('/auth/me', {}, token),
+          apiRequest<ApiStudent[]>('/students', {}, token),
+          apiRequest<ApiSchoolGroup[]>('/groups', {}, token),
+          apiRequest<ApiLesson[]>('/lessons', {}, token),
+          apiRequest<ApiWeeklySchedule[]>('/weekly-schedules', {}, token)
+        ]);
         if (!cancelled) {
+          dispatch(setPaymentVisibility(account.canViewStudentPayments === true));
           dispatch(replaceStudents(remoteStudents.map(mapApiStudent)));
+          dispatch(replaceGroups(remoteGroups.map(mapApiGroup)));
+          dispatch(replaceLessons(remoteLessons.map(mapApiLesson)));
+          dispatch(replaceWeeklySchedules(remoteSchedules.map(mapApiWeeklySchedule)));
           if (user?.role === 'Admin') {
-            let remoteTransactions = await apiRequest<ApiTransaction[]>('/transactions', {}, token);
-            const localTransactions = store.getState().billing.transactions;
-            if (remoteTransactions.length === 0 && localTransactions.length > 0) {
-              for (const transaction of localTransactions) {
-                const localStudent = transaction.studentId
-                  ? localStudents.find(student => student.id === transaction.studentId)
-                  : undefined;
-                const remoteStudent = localStudent
-                  ? remoteStudents.find(student => student.email.toLowerCase() === localStudent.email.toLowerCase())
-                  : undefined;
-                await apiRequest<ApiTransaction>('/transactions', {
-                  method: 'POST',
-                  body: JSON.stringify({
-                    ...transaction,
-                    id: undefined,
-                    studentId: remoteStudent?.id,
-                    applyToStudentBalance: false
-                  })
-                }, token);
-              }
-              remoteTransactions = await apiRequest<ApiTransaction[]>('/transactions', {}, token);
+            const [remoteTransactions, reminders] = await Promise.all([
+              apiRequest<ApiTransaction[]>('/transactions', {}, token),
+              apiRequest<ApiPaymentReminder[]>('/admin/notifications/payments', {}, token)
+            ]);
+            if (!cancelled) {
+              dispatch(replaceTransactions(remoteTransactions.map(mapApiTransaction)));
+              dispatch(setPaymentReminders(reminders));
             }
-            if (!cancelled) dispatch(replaceTransactions(remoteTransactions.map(mapApiTransaction)));
           }
         }
       } catch (error) {
@@ -226,10 +244,10 @@ function AppShell() {
       }
     };
 
-    void refreshStudents(true);
+    void refreshWorkspace();
     void refreshNotices();
     const interval = setInterval(() => {
-      void refreshStudents(false);
+      void refreshWorkspace();
       void refreshNotices();
     }, 5000);
     return () => {

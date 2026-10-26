@@ -1,6 +1,7 @@
 package com.school.crm.service;
 
 import com.school.crm.model.dto.AuthRequest;
+import com.school.crm.model.dto.TeacherCreateRequest;
 import com.school.crm.model.entity.StaffAccount;
 import com.school.crm.repository.StaffAccountRepository;
 import com.school.crm.repository.StaffSessionRepository;
@@ -80,10 +81,10 @@ class StaffAuthServiceTest {
     }
 
     @Test
-    void registerTeacherStillRequiresName() {
-        AuthRequest request = new AuthRequest("teacher@school.com", "password123", " ");
+    void adminProvisionedTeacherRequiresName() {
+        TeacherCreateRequest request = new TeacherCreateRequest("teacher@school.com", " ", "password123");
 
-        assertThrows(IllegalArgumentException.class, () -> authService.registerTeacher(request));
+        assertThrows(IllegalArgumentException.class, () -> authService.createTeacher(request));
 
         verify(accountRepository, never()).save(any(StaffAccount.class));
     }

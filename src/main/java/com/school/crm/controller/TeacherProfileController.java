@@ -32,7 +32,8 @@ public class TeacherProfileController {
         return new TeacherProfileResponse(
                 account.getName(),
                 account.getEmail(),
-                "Teacher"
+                "Teacher",
+                account.canViewStudentPayments()
         );
     }
 }

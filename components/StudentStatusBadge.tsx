@@ -9,6 +9,7 @@ export interface StudentStatusBadgeProps {
   onStatusChange?: (newStatus: Student['status']) => void;
   size?: 'sm' | 'md' | 'lg';
   showDropdownIcon?: boolean;
+  interactive?: boolean;
 }
 
 export const STATUS_CONFIG: Record<
@@ -61,6 +62,7 @@ export default function StudentStatusBadge({
   onStatusChange,
   size = 'md',
   showDropdownIcon = true,
+  interactive = true,
 }: StudentStatusBadgeProps) {
   const dispatch = useDispatch();
   const [modalVisible, setModalVisible] = useState(false);
@@ -103,7 +105,7 @@ export default function StudentStatusBadge({
           if (e && typeof (e as any).stopPropagation === 'function') {
             (e as any).stopPropagation();
           }
-          setModalVisible(true);
+          if (interactive) setModalVisible(true);
         }}
         accessibilityRole="button"
         accessibilityLabel={`Статус: ${config.label}. Нажмите чтобы изменить`}
@@ -113,7 +115,7 @@ export default function StudentStatusBadge({
         <Text className={`font-bold ${config.badgeText}`}>
           {config.label}
         </Text>
-        {showDropdownIcon && (
+        {showDropdownIcon && interactive && (
           <ChevronDown
             size={size === 'sm' ? 10 : size === 'lg' ? 14 : 12}
             className={`ml-1 ${config.badgeText} opacity-75`}
@@ -126,7 +128,7 @@ export default function StudentStatusBadge({
       <Modal
         animationType="fade"
         transparent={true}
-        visible={modalVisible}
+        visible={interactive && modalVisible}
         onRequestClose={() => setModalVisible(false)}
       >
         <Pressable

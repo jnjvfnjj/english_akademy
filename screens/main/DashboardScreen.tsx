@@ -1,11 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
-import { RootState, Student, Group, addStudent, addGroup, deleteGroup, addLesson, addTransaction } from '../../store';
+import {
+  RootState,
+  Student,
+  Group,
+  deleteGroup,
+  mapApiGroup,
+  replaceGroups,
+  setSyncError
+} from '../../store';
 import StudentStatusBadge from '../../components/StudentStatusBadge';
 import StudentDetailModal from '../../components/StudentDetailModal';
 import GroupDetailModal from '../../components/GroupDetailModal';
 import { Users, GraduationCap, Calendar, DollarSign, Plus, ArrowUpRight, TrendingUp, ChevronRight, X, Clock, CheckCircle, Search, Shield, BookOpen, Trash2 } from 'lucide-react-native';
+import { ApiError, ApiSchoolGroup, ApiTeacherAccount, apiRequest } from '../../services/api';
 
 export default function DashboardScreen({ navigation }: any) {
   const dispatch = useDispatch();
@@ -13,11 +22,12 @@ export default function DashboardScreen({ navigation }: any) {
   const groups = useSelector((state: RootState) => state.groups.list);
   const lessons = useSelector((state: RootState) => state.lessons.list);
   const transactions = useSelector((state: RootState) => state.billing.transactions);
+  const token = useSelector((state: RootState) => state.auth.token);
   const userRole = useSelector((state: RootState) => state.auth.user?.role);
   const isAdmin = userRole === 'Admin';
-
-  // Quick action modals
-  const [modalType, setModalType] = useState<'student' | 'lesson' | 'payment' | null>(null);
+  const [teacherAccounts, setTeacherAccounts] = useState<ApiTeacherAccount[]>([]);
+  const [groupSaving, setGroupSaving] = useState(false);
+  const [groupFormError, setGroupFormError] = useState('');
 
   // Dedicated list modals for stat cards
   const [activeStudentsModalOpen, setActiveStudentsModalOpen] = useState(false);
@@ -31,38 +41,37 @@ export default function DashboardScreen({ navigation }: any) {
 
 
   // Selector state for level groups
-  const [selectedLevelGroup, setSelectedLevelGroup] = useState<string | null>('B1');
+  const [selectedLevelGroup, setSelectedLevelGroup] = useState<string | null>(null);
 
   // Search states for modals
   const [activeStudentsSearch, setActiveStudentsSearch] = useState('');
   const [scheduledLessonsSearch, setScheduledLessonsSearch] = useState('');
 
-  // Form states for adding student
-  const [studentName, setStudentName] = useState('');
-  const [studentEmail, setStudentEmail] = useState('');
-  const [studentPhone, setStudentPhone] = useState('');
-  const [studentLevel, setStudentLevel] = useState('Intermediate (B1)');
-  const [studentAge, setStudentAge] = useState<'Kids' | 'Teens' | 'Adults'>('Adults');
-  const [studentBalance, setStudentBalance] = useState('10');
-
   // Form states for adding group
   const [newGroupTitle, setNewGroupTitle] = useState('');
   const [newGroupLevel, setNewGroupLevel] = useState('B1');
   const [newGroupDesc, setNewGroupDesc] = useState('');
-  const [newGroupTeacher, setNewGroupTeacher] = useState('Елена Смирнова');
+  const [newGroupTeacherId, setNewGroupTeacherId] = useState<number | null>(null);
+  const [newGroupStudentIds, setNewGroupStudentIds] = useState<string[]>([]);
 
-  // Form states for scheduling lesson - Selecting GROUP instead of student
-  const [lessonGroupId, setLessonGroupId] = useState(groups.length > 0 ? groups[0].id : '');
-  const [lessonGroupName, setLessonGroupName] = useState(groups.length > 0 ? groups[0].title : '');
-  const [lessonDate, setLessonDate] = useState('2026-05-28');
-  const [lessonTime, setLessonTime] = useState('12:00');
-  const [lessonTeacher, setLessonTeacher] = useState('Елена Смирнова');
-  const [lessonTopic, setLessonTopic] = useState('');
-
-  // Form states for payment
-  const [paymentStudentId, setPaymentStudentId] = useState('');
-  const [paymentAmount, setPaymentAmount] = useState('150');
-  const [paymentDesc, setPaymentDesc] = useState('Покупка пакета занятий');
+  useEffect(() => {
+    if (!isAdmin || !token) return;
+    let cancelled = false;
+    apiRequest<ApiTeacherAccount[]>('/admin/teachers', {}, token)
+      .then(accounts => {
+        if (!cancelled) {
+          const active = accounts.filter(account => account.active);
+          setTeacherAccounts(active);
+          setNewGroupTeacherId(current => current ?? active[0]?.id ?? null);
+        }
+      })
+      .catch(error => {
+        if (!cancelled) dispatch(setSyncError(
+          error instanceof ApiError ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ СЃРїРёСЃРѕРє РїСЂРµРїРѕРґР°РІР°С‚РµР»РµР№.'
+        ));
+      });
+    return () => { cancelled = true; };
+  }, [dispatch, isAdmin, token]);
 
   // Stats calculations
   const activeStudentsList = students.filter(s => s.status === 'Active');
@@ -72,15 +81,16 @@ export default function DashboardScreen({ navigation }: any) {
   const pendingLessons = scheduledLessonsList.length;
 
   const activeTransactions = transactions;
-  const totalIncome = activeTransactions
-    .filter(t => t.type === 'Income')
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const totalExpense = activeTransactions
-    .filter(t => t.type === 'Expense')
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const profitLoss = totalIncome - totalExpense;
+  const sumByCurrency = (type: 'Income' | 'Expense', currency: 'KGS' | 'USD') =>
+    activeTransactions
+      .filter(transaction => transaction.type === type && (transaction.currency || 'USD') === currency)
+      .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const totalIncomeKgs = sumByCurrency('Income', 'KGS');
+  const totalIncomeUsd = sumByCurrency('Income', 'USD');
+  const profitKgs = totalIncomeKgs - sumByCurrency('Expense', 'KGS');
+  const profitUsd = totalIncomeUsd - sumByCurrency('Expense', 'USD');
+  const formatMoneySummary = (kgs: number, usd: number) =>
+    `${kgs.toLocaleString()} сом${usd ? ` · $${usd.toLocaleString()}` : ''}`;
 
   const matchStudentLevel = (studentLevelStr: string, groupKey: string) => {
     if (!studentLevelStr || !groupKey) return false;
@@ -89,119 +99,60 @@ export default function DashboardScreen({ navigation }: any) {
     return normalizedLevel === normalizedGroup || normalizedLevel.includes(`(${normalizedGroup})`) || normalizedLevel.includes(normalizedGroup);
   };
 
-  const handleAddStudent = () => {
-    if (!studentName.trim() || !studentEmail.trim()) return;
-    dispatch(addStudent({
-      name: studentName.trim(),
-      email: studentEmail.trim(),
-      phone: studentPhone || '+79998881111',
-      level: studentLevel,
-      ageGroup: studentAge,
-      balance: parseInt(studentBalance, 10) || 0,
-      status: 'Active',
-      notes: 'Регистрация студента через панель управления'
-    }));
-
-    const bal = parseInt(studentBalance, 10) || 0;
-    if (isAdmin && bal > 0) {
-      dispatch(addTransaction({
-        studentName: studentName.trim(),
-        amount: bal * 25,
-        type: 'Income',
-        category: 'Tuition',
-        date: new Date().toISOString().split('T')[0],
-        description: `Зарегистрирован студент ${studentName} со стартовым пакетом из ${bal} часов`
-      }));
+  const studentsInGroup = (group: Group | undefined, groupKey: string) => {
+    if (group?.studentIds) {
+      return students.filter(student => group.studentIds?.includes(student.id));
     }
-
-    setStudentName('');
-    setStudentEmail('');
-    setStudentPhone('');
-    setStudentBalance('10');
-    setModalType(null);
+    return students.filter(student => !student.groupId && matchStudentLevel(student.level, groupKey));
   };
 
-  const handleAddGroup = () => {
-    if (!newGroupTitle.trim()) return;
+  const selectedGroup = groups.find(group => group.id === selectedLevelGroup);
 
-    dispatch(addGroup({
-      key: newGroupLevel,
-      title: newGroupTitle.trim(),
-      desc: newGroupDesc.trim() || `Курс уровня ${newGroupLevel}`,
-      level: newGroupLevel,
-      teacherName: newGroupTeacher,
-      color: 'border-indigo-400 bg-indigo-50 text-indigo-700',
-      activeText: 'text-indigo-800'
-    }));
+  useEffect(() => {
+    if (!selectedLevelGroup && groups.length > 0) setSelectedLevelGroup(groups[0].id);
+  }, [groups, selectedLevelGroup]);
 
-    setNewGroupTitle('');
-    setNewGroupDesc('');
-    setAddGroupModalOpen(false);
-  };
-
-  const handleOpenScheduleModal = () => {
-    if (groups.length > 0) {
-      setLessonGroupId(groups[0].id);
-      setLessonGroupName(groups[0].title);
-      if (groups[0].teacherName) setLessonTeacher(groups[0].teacherName);
+  const handleAddGroup = async () => {
+    if (!token || !newGroupTitle.trim() || !newGroupTeacherId) {
+      setGroupFormError('Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹ Рё РІС‹Р±РµСЂРёС‚Рµ Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅРѕРіРѕ РїСЂРµРїРѕРґР°РІР°С‚РµР»СЏ.');
+      return;
     }
-    setLessonTopic('');
-    setModalType('lesson');
-  };
-
-  const handleAddLesson = () => {
-    if (!lessonGroupName || !lessonTopic.trim()) return;
-
-    dispatch(addLesson({
-      groupId: lessonGroupId,
-      groupName: lessonGroupName,
-      date: lessonDate,
-      time: lessonTime,
-      teacherName: lessonTeacher,
-      topic: lessonTopic.trim(),
-      duration: 1,
-      status: 'Scheduled'
-    }));
-
-    setLessonTopic('');
-    setModalType(null);
-  };
-
-  const handleAddPayment = () => {
-    if (!paymentStudentId || !paymentAmount) return;
-    const selectedStd = students.find(s => s.id === paymentStudentId);
-    if (!selectedStd) return;
-
-    const amt = parseFloat(paymentAmount) || 0;
-    dispatch(addTransaction({
-      studentId: paymentStudentId,
-      studentName: selectedStd.name,
-      amount: amt,
-      type: 'Income',
-      category: 'Tuition',
-      date: new Date().toISOString().split('T')[0],
-      description: paymentDesc || 'Оплата за обучение'
-    }));
-
-    const hours = Math.floor(amt / 25);
-    if (hours > 0) {
-      const idx = students.findIndex(s => s.id === paymentStudentId);
-      if (idx !== -1) {
-        dispatch({
-          type: 'students/updateStudent',
-          payload: {
-            ...students[idx],
-            balance: students[idx].balance + hours,
-            totalPaid: students[idx].totalPaid + amt,
-            totalClasses: students[idx].totalClasses + hours
-          }
-        });
-      }
+    setGroupSaving(true);
+    setGroupFormError('');
+    try {
+      const created = await apiRequest<ApiSchoolGroup>('/groups', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: newGroupTitle.trim(),
+          level: newGroupLevel,
+          description: newGroupDesc.trim() || `РљСѓСЂСЃ СѓСЂРѕРІРЅСЏ ${newGroupLevel}`,
+          teacherId: newGroupTeacherId,
+          studentIds: newGroupStudentIds.map(Number)
+        })
+      }, token);
+      dispatch(replaceGroups([...groups, mapApiGroup(created)]));
+      setNewGroupTitle('');
+      setNewGroupDesc('');
+      setNewGroupStudentIds([]);
+      setAddGroupModalOpen(false);
+    } catch (error) {
+      setGroupFormError(error instanceof ApiError ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ РіСЂСѓРїРїСѓ.');
+    } finally {
+      setGroupSaving(false);
     }
+  };
 
-    setPaymentAmount('150');
-    setPaymentDesc('Покупка пакета занятий');
-    setModalType(null);
+  const handleDeleteGroup = async () => {
+    if (!token || !groupToDelete) return;
+    try {
+      await apiRequest<void>(`/groups/${encodeURIComponent(groupToDelete.id)}`, { method: 'DELETE' }, token);
+      dispatch(deleteGroup(groupToDelete.id));
+      if (selectedLevelGroup === groupToDelete.id) setSelectedLevelGroup(null);
+      if (groupModalKey === groupToDelete.id) setGroupModalKey(null);
+      setGroupToDelete(null);
+    } catch (error) {
+      dispatch(setSyncError(error instanceof ApiError ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ РіСЂСѓРїРїСѓ.'));
+    }
   };
 
   const filteredActiveStudents = activeStudentsList.filter(s =>
@@ -222,45 +173,44 @@ export default function DashboardScreen({ navigation }: any) {
       {/* Header section */}
       <View className="mb-8 flex-row justify-between items-center flex-wrap">
         <View className="mb-2">
-          <Text className="text-2xl font-bold text-slate-900">Обзор успеваемости</Text>
+          <Text className="text-2xl font-bold text-slate-900">РћР±Р·РѕСЂ СѓСЃРїРµРІР°РµРјРѕСЃС‚Рё</Text>
           <Text className="text-sm text-slate-500 mt-1">
-            Вы вошли как: <Text className="font-semibold text-indigo-600">{isAdmin ? 'Администратор' : 'Преподаватель'}</Text>
+            Р’С‹ РІРѕС€Р»Рё РєР°Рє: <Text className="font-semibold text-indigo-600">{isAdmin ? 'РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ' : 'РџСЂРµРїРѕРґР°РІР°С‚РµР»СЊ'}</Text>
           </Text>
         </View>
-
         {/* Quick action triggers */}
         <View className="flex-row gap-3">
-          <TouchableOpacity 
-            onPress={() => setModalType('student')}
+          {isAdmin && <TouchableOpacity
+            onPress={() => navigation.navigate('Students')}
             className="bg-indigo-600 hover:bg-indigo-700 px-4 py-2.5 rounded-lg flex-row items-center gap-2 shadow"
           >
             <Plus size={16} color="#ffffff" />
-            <Text className="text-white text-xs font-semibold">Новый студент</Text>
-          </TouchableOpacity>
+            <Text className="text-white text-xs font-semibold">РќРѕРІС‹Р№ СЃС‚СѓРґРµРЅС‚</Text>
+          </TouchableOpacity>}
 
           <TouchableOpacity 
-            onPress={handleOpenScheduleModal}
+            onPress={() => navigation.navigate('Schedule')}
             className="bg-slate-800 hover:bg-slate-900 px-4 py-2.5 rounded-lg flex-row items-center gap-2 shadow"
           >
             <Calendar size={16} color="#ffffff" />
-            <Text className="text-white text-xs font-semibold">Назначить урок группы</Text>
+            <Text className="text-white text-xs font-semibold">РќР°Р·РЅР°С‡РёС‚СЊ СѓСЂРѕРє РіСЂСѓРїРїС‹</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Grid of four stat widgets */}
-      <View className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <View className={`grid grid-cols-1 ${isAdmin ? 'md:grid-cols-4' : 'md:grid-cols-2'} gap-6 mb-8`}>
         
-        {/* Stat item 1: Активные студенты (CLICKABLE -> OPENS ACTIVE STUDENTS LIST) */}
+        {/* Stat item 1: РђРєС‚РёРІРЅС‹Рµ СЃС‚СѓРґРµРЅС‚С‹ (CLICKABLE -> OPENS ACTIVE STUDENTS LIST) */}
         <TouchableOpacity 
           onPress={() => setActiveStudentsModalOpen(true)}
           className="bg-white hover:bg-indigo-50/40 rounded-xl p-5 border border-slate-200 hover:border-indigo-300 shadow-sm flex-row items-center justify-between transition-all"
         >
           <View>
-            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Активные студенты</Text>
+            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">РђРєС‚РёРІРЅС‹Рµ СЃС‚СѓРґРµРЅС‚С‹</Text>
             <Text className="text-3xl font-extrabold text-slate-900 mt-2">{activeStudents}</Text>
             <View className="flex-row items-center mt-2.5">
-              <Text className="text-xs font-bold text-indigo-600">Нажмите для списка →</Text>
+              <Text className="text-xs font-bold text-indigo-600">РќР°Р¶РјРёС‚Рµ РґР»СЏ СЃРїРёСЃРєР° в†’</Text>
             </View>
           </View>
           <View className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
@@ -268,16 +218,16 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
         </TouchableOpacity>
 
-        {/* Stat item 2: Запланировано уроков (CLICKABLE -> OPENS SCHEDULED LESSONS LIST) */}
+        {/* Stat item 2: Р—Р°РїР»Р°РЅРёСЂРѕРІР°РЅРѕ СѓСЂРѕРєРѕРІ (CLICKABLE -> OPENS SCHEDULED LESSONS LIST) */}
         <TouchableOpacity 
           onPress={() => setScheduledLessonsModalOpen(true)}
           className="bg-white hover:bg-indigo-50/40 rounded-xl p-5 border border-slate-200 hover:border-indigo-300 shadow-sm flex-row items-center justify-between transition-all"
         >
           <View>
-            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Запланировано уроков</Text>
+            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Р—Р°РїР»Р°РЅРёСЂРѕРІР°РЅРѕ СѓСЂРѕРєРѕРІ</Text>
             <Text className="text-3xl font-extrabold text-slate-900 mt-2">{pendingLessons}</Text>
             <View className="flex-row items-center mt-2.5">
-              <Text className="text-xs font-bold text-indigo-600">Нажмите для списка →</Text>
+              <Text className="text-xs font-bold text-indigo-600">РќР°Р¶РјРёС‚Рµ РґР»СЏ СЃРїРёСЃРєР° в†’</Text>
             </View>
           </View>
           <View className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
@@ -285,17 +235,18 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
         </TouchableOpacity>
 
-        {/* Stat item 3: Общая выручка */}
+        {isAdmin && <>
+        {/* Stat item 3: РћР±С‰Р°СЏ РІС‹СЂСѓС‡РєР° */}
         <View className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex-row items-center justify-between">
           <View>
-            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Общая выручка</Text>
+            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">РћР±С‰Р°СЏ РІС‹СЂСѓС‡РєР°</Text>
             <Text className="text-3xl font-extrabold text-slate-900 mt-2">
-              {isAdmin ? `$${totalIncome.toLocaleString()}` : 'Недоступно'}
+              {isAdmin ? formatMoneySummary(totalIncomeKgs, totalIncomeUsd) : 'РќРµРґРѕСЃС‚СѓРїРЅРѕ'}
             </Text>
             <View className="flex-row items-center mt-2.5">
               <Plus size={14} color="#10b981" />
               <Text className="text-xs font-medium text-emerald-600 ml-1">
-                {isAdmin ? 'Журнал оплат доступен' : 'Доступно администратору'}
+                {isAdmin ? 'Р–СѓСЂРЅР°Р» РѕРїР»Р°С‚ РґРѕСЃС‚СѓРїРµРЅ' : 'Р”РѕСЃС‚СѓРїРЅРѕ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂСѓ'}
               </Text>
             </View>
           </View>
@@ -304,44 +255,45 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
         </View>
 
-        {/* Stat item 4: Чистый баланс */}
+        {/* Stat item 4: Р§РёСЃС‚С‹Р№ Р±Р°Р»Р°РЅСЃ */}
         <View className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex-row items-center justify-between">
           <View>
-            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Чистый баланс</Text>
-            <Text className={`text-3xl font-extrabold mt-2 ${profitLoss >= 0 ? "text-slate-900" : "text-rose-600"}`}>
-              {isAdmin ? `$${profitLoss.toLocaleString()}` : 'Недоступно'}
+            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Р§РёСЃС‚С‹Р№ Р±Р°Р»Р°РЅСЃ</Text>
+            <Text className={`text-3xl font-extrabold mt-2 ${profitKgs >= 0 ? "text-slate-900" : "text-rose-600"}`}>
+              {isAdmin ? formatMoneySummary(profitKgs, profitUsd) : 'РќРµРґРѕСЃС‚СѓРїРЅРѕ'}
             </Text>
             <View className="flex-row items-center mt-2.5">
               <ArrowUpRight size={14} color="#64748b" />
-              <Text className="text-xs font-medium text-slate-500 ml-1">Маржинальность</Text>
+              <Text className="text-xs font-medium text-slate-500 ml-1">РњР°СЂР¶РёРЅР°Р»СЊРЅРѕСЃС‚СЊ</Text>
             </View>
           </View>
-          <View className={`p-3 rounded-xl ${profitLoss >= 0 ? "bg-slate-100" : "bg-rose-50"}`}>
-            <TrendingUp size={24} color={profitLoss >= 0 ? "#475569" : "#e11d48"} />
+          <View className={`p-3 rounded-xl ${profitKgs >= 0 ? "bg-slate-100" : "bg-rose-50"}`}>
+            <TrendingUp size={24} color={profitKgs >= 0 ? "#475569" : "#e11d48"} />
           </View>
-        </View>
+          </View>
+          </>}
 
       </View>
 
-      {/* УЧЕБНЫЕ ГРУППЫ (С КНОПКОЙ "ДОБАВИТЬ ГРУППУ") */}
+      {/* РЈР§Р•Р‘РќР«Р• Р“Р РЈРџРџР« (РЎ РљРќРћРџРљРћР™ "Р”РћР‘РђР’РРўР¬ Р“Р РЈРџРџРЈ") */}
       <View className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-8">
         <View className="mb-4 flex-row justify-between items-center flex-wrap gap-3">
           <View>
-            <Text className="text-lg font-bold text-slate-800">Учебные группы (CEFR)</Text>
+            <Text className="text-lg font-bold text-slate-800">РЈС‡РµР±РЅС‹Рµ РіСЂСѓРїРїС‹ (CEFR)</Text>
             <Text className="text-xs text-slate-400 mt-1">
-              Нажмите на группу, чтобы сразу открыть список студентов группы:
+              РќР°Р¶РјРёС‚Рµ РЅР° РіСЂСѓРїРїСѓ, С‡С‚РѕР±С‹ СЃСЂР°Р·Сѓ РѕС‚РєСЂС‹С‚СЊ СЃРїРёСЃРѕРє СЃС‚СѓРґРµРЅС‚РѕРІ РіСЂСѓРїРїС‹:
             </Text>
           </View>
           
           <View className="flex-row items-center gap-2">
-            {/* КНОПКА "ДОБАВИТЬ ГРУППУ" */}
-            <TouchableOpacity
+            {/* РљРќРћРџРљРђ "Р”РћР‘РђР’РРўР¬ Р“Р РЈРџРџРЈ" */}
+            {isAdmin && <TouchableOpacity
               onPress={() => setAddGroupModalOpen(true)}
               className="bg-indigo-600 hover:bg-indigo-700 px-3.5 py-2 rounded-lg flex-row items-center gap-1.5 shadow"
             >
               <Plus size={15} color="#ffffff" />
-              <Text className="text-white text-xs font-bold">Добавить группу</Text>
-            </TouchableOpacity>
+              <Text className="text-white text-xs font-bold">Р”РѕР±Р°РІРёС‚СЊ РіСЂСѓРїРїСѓ</Text>
+            </TouchableOpacity>}
 
             {selectedLevelGroup && (
               <TouchableOpacity
@@ -349,7 +301,7 @@ export default function DashboardScreen({ navigation }: any) {
                 className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-2 rounded-lg flex-row items-center gap-1.5"
               >
                 <Users size={14} color="#4f46e5" />
-                <Text className="text-xs font-bold text-indigo-700">Открыть {selectedLevelGroup} списком</Text>
+                <Text className="text-xs font-bold text-indigo-700">РћС‚РєСЂС‹С‚СЊ {selectedGroup?.title} СЃРїРёСЃРєРѕРј</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -358,14 +310,14 @@ export default function DashboardScreen({ navigation }: any) {
         {/* Group Cards */}
         <View className="flex-row flex-wrap gap-4 mb-6">
           {groups.map((item) => {
-            const count = students.filter(s => matchStudentLevel(s.level, item.key)).length;
-            const isSelected = selectedLevelGroup === item.key;
+            const count = studentsInGroup(item, item.key).length;
+            const isSelected = selectedLevelGroup === item.id;
             return (
               <TouchableOpacity
                 key={item.id}
                 onPress={() => {
-                  setSelectedLevelGroup(item.key);
-                  setGroupModalKey(item.key);
+                  setSelectedLevelGroup(item.id);
+                  setGroupModalKey(item.id);
                 }}
                 className={`p-4 rounded-xl border flex-1 min-w-[180px] transition-all flex flex-row items-center justify-between ${
                   isSelected ? 'border-indigo-400 bg-indigo-50/70 border-2 shadow-sm' : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
@@ -377,50 +329,52 @@ export default function DashboardScreen({ navigation }: any) {
                   </Text>
                   <Text className="text-slate-500 text-[10px] mt-0.5">{item.desc}</Text>
                   {item.teacherName ? (
-                    <Text className="text-indigo-600 text-[10px] font-semibold mt-1">Преп.: {item.teacherName}</Text>
+                    <Text className="text-indigo-600 text-[10px] font-semibold mt-1">РџСЂРµРї.: {item.teacherName}</Text>
                   ) : null}
                 </View>
                 <View className="flex-row items-center gap-2">
                   <View className={`w-8 h-8 rounded-full items-center justify-center ${isSelected ? 'bg-indigo-600' : 'bg-slate-200'}`}>
                     <Text className={`text-xs font-bold ${isSelected ? 'text-white' : 'text-slate-800'}`}>{count}</Text>
                   </View>
-                  <TouchableOpacity
+                  {isAdmin && <TouchableOpacity
                     onPress={(e) => {
                       // @ts-ignore
                       if (e && e.stopPropagation) e.stopPropagation();
                       setGroupToDelete(item);
                     }}
                     className="w-8 h-8 rounded-full items-center justify-center bg-rose-50 hover:bg-rose-100 border border-rose-200"
-                    accessibilityLabel="Удалить группу"
+                    accessibilityLabel="РЈРґР°Р»РёС‚СЊ РіСЂСѓРїРїСѓ"
                   >
                     <Trash2 size={13} color="#e11d48" />
-                  </TouchableOpacity>
+                  </TouchableOpacity>}
                 </View>
               </TouchableOpacity>
             );
           })}
           {groups.length === 0 && (
             <View className="w-full p-6 bg-slate-50 border border-slate-200 rounded-xl items-center justify-center">
-              <Text className="text-sm font-semibold text-slate-600">Нет учебных групп</Text>
-              <Text className="text-xs text-slate-400 mt-1">Нажмите «+ Добавить группу», чтобы создать группу</Text>
+              <Text className="text-sm font-semibold text-slate-600">РќРµС‚ СѓС‡РµР±РЅС‹С… РіСЂСѓРїРї</Text>
+              <Text className="text-xs text-slate-400 mt-1">
+                {isAdmin ? 'РќР°Р¶РјРёС‚Рµ В«Р”РѕР±Р°РІРёС‚СЊ РіСЂСѓРїРїСѓВ», С‡С‚РѕР±С‹ СЃРѕР·РґР°С‚СЊ РіСЂСѓРїРїСѓ' : 'РџРѕРєР° РІР°Рј РЅРµ РЅР°Р·РЅР°С‡РёР»Рё СѓС‡РµР±РЅС‹Рµ РіСЂСѓРїРїС‹.'}
+              </Text>
             </View>
           )}
         </View>
 
 
-        {selectedLevelGroup && (
+        {selectedGroup && (
           <View className="bg-slate-50 border border-slate-200/80 p-4 rounded-xl">
             <View className="flex-row justify-between items-center mb-3">
               <Text className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Студенты группы {selectedLevelGroup} • Нажмите на строку для полного профиля:
+                РЎС‚СѓРґРµРЅС‚С‹ РіСЂСѓРїРїС‹ {selectedGroup.title} вЂў РќР°Р¶РјРёС‚Рµ РЅР° СЃС‚СЂРѕРєСѓ РґР»СЏ РїРѕР»РЅРѕРіРѕ РїСЂРѕС„РёР»СЏ:
               </Text>
-              <TouchableOpacity onPress={() => setGroupModalKey(selectedLevelGroup)}>
-                <Text className="text-xs font-bold text-indigo-600">Все студенты группы ({students.filter(s => matchStudentLevel(s.level, selectedLevelGroup)).length}) →</Text>
+              <TouchableOpacity onPress={() => setGroupModalKey(selectedGroup.id)}>
+                <Text className="text-xs font-bold text-indigo-600">Р’СЃРµ СЃС‚СѓРґРµРЅС‚С‹ РіСЂСѓРїРїС‹ ({studentsInGroup(selectedGroup, selectedGroup.key).length}) в†’</Text>
               </TouchableOpacity>
             </View>
 
             <View className="gap-2">
-              {students.filter(s => matchStudentLevel(s.level, selectedLevelGroup)).slice(0, 5).map((std) => (
+              {studentsInGroup(selectedGroup, selectedGroup.key).slice(0, 5).map((std) => (
                 <TouchableOpacity
                   key={std.id}
                   onPress={() => setSelectedStudentInfo(std)}
@@ -437,18 +391,18 @@ export default function DashboardScreen({ navigation }: any) {
                   </View>
 
                   <View className="flex-row items-center gap-3">
-                    <StudentStatusBadge student={std} size="sm" />
+                    <StudentStatusBadge student={std} size="sm" interactive={isAdmin} />
                     <Text className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded">
-                      {std.balance} ч.
+                      {std.balance} С‡.
                     </Text>
                     <ChevronRight size={16} color="#94a3b8" />
                   </View>
                 </TouchableOpacity>
               ))}
 
-              {students.filter(s => matchStudentLevel(s.level, selectedLevelGroup)).length === 0 && (
+              {studentsInGroup(selectedGroup, selectedGroup.key).length === 0 && (
                 <View className="py-6 items-center">
-                  <Text className="text-xs text-slate-400">В группе {selectedLevelGroup} пока нет студентов.</Text>
+                  <Text className="text-xs text-slate-400">Р’ РіСЂСѓРїРїРµ {selectedGroup.title} РїРѕРєР° РЅРµС‚ СЃС‚СѓРґРµРЅС‚РѕРІ.</Text>
                 </View>
               )}
             </View>
@@ -463,17 +417,17 @@ export default function DashboardScreen({ navigation }: any) {
         <View className="flex-1 min-w-0 md:min-w-[340px] bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-6 flex flex-col">
           <View className="flex-row justify-between items-center mb-6">
             <View>
-              <Text className="text-lg font-bold text-slate-800">Уроки на сегодня и расписание</Text>
-              <Text className="text-xs text-slate-400 mt-1">Список ближайших уроков по группам</Text>
+              <Text className="text-lg font-bold text-slate-800">РЈСЂРѕРєРё РЅР° СЃРµРіРѕРґРЅСЏ Рё СЂР°СЃРїРёСЃР°РЅРёРµ</Text>
+              <Text className="text-xs text-slate-400 mt-1">РЎРїРёСЃРѕРє Р±Р»РёР¶Р°Р№С€РёС… СѓСЂРѕРєРѕРІ РїРѕ РіСЂСѓРїРїР°Рј</Text>
             </View>
             <TouchableOpacity onPress={() => navigation.navigate('Schedule')} className="text-xs font-bold text-indigo-600">
-              <Text className="text-xs font-bold text-indigo-600">Всё расписание →</Text>
+              <Text className="text-xs font-bold text-indigo-600">Р’СЃС‘ СЂР°СЃРїРёСЃР°РЅРёРµ в†’</Text>
             </TouchableOpacity>
           </View>
 
           <View className="gap-3 flex-1">
             {lessons.slice(0, 4).map((lesson) => {
-              const displayName = lesson.groupName || lesson.studentName || 'Учебная группа';
+              const displayName = lesson.groupName || lesson.studentName || 'РЈС‡РµР±РЅР°СЏ РіСЂСѓРїРїР°';
               return (
                 <View 
                   key={lesson.id}
@@ -485,8 +439,8 @@ export default function DashboardScreen({ navigation }: any) {
                     </View>
                     <View className="flex-1">
                       <Text className="text-sm font-bold text-slate-800">{displayName}</Text>
-                      <Text className="text-xs text-indigo-600 font-semibold mt-0.5">Тема: {lesson.topic}</Text>
-                      <Text className="text-[11px] text-slate-400">Преподаватель: {lesson.teacherName}</Text>
+                      <Text className="text-xs text-indigo-600 font-semibold mt-0.5">РўРµРјР°: {lesson.topic}</Text>
+                      <Text className="text-[11px] text-slate-400">РџСЂРµРїРѕРґР°РІР°С‚РµР»СЊ: {lesson.teacherName}</Text>
                     </View>
                   </View>
 
@@ -502,7 +456,7 @@ export default function DashboardScreen({ navigation }: any) {
 
             {lessons.length === 0 && (
               <View className="py-12 items-center">
-                <Text className="text-slate-400 text-sm">Уроков на сегодня не запланировано.</Text>
+                <Text className="text-slate-400 text-sm">РЈСЂРѕРєРѕРІ РЅР° СЃРµРіРѕРґРЅСЏ РЅРµ Р·Р°РїР»Р°РЅРёСЂРѕРІР°РЅРѕ.</Text>
               </View>
             )}
           </View>
@@ -511,15 +465,14 @@ export default function DashboardScreen({ navigation }: any) {
         {/* Quick Access CRM Panel */}
         <View className="w-full lg:w-96 bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-6 flex flex-col justify-between">
           <View>
-            <Text className="text-lg font-bold text-slate-800 mb-2">Быстрый доступ к CRM</Text>
-            <Text className="text-xs text-slate-500 mb-6">Управление группами, учет и переход к реестру студентов.</Text>
+            <Text className="text-lg font-bold text-slate-800 mb-2">Р‘С‹СЃС‚СЂС‹Р№ РґРѕСЃС‚СѓРї Рє CRM</Text>
+            <Text className="text-xs text-slate-500 mb-6">РЈРїСЂР°РІР»РµРЅРёРµ РіСЂСѓРїРїР°РјРё, СѓС‡РµС‚ Рё РїРµСЂРµС…РѕРґ Рє СЂРµРµСЃС‚СЂСѓ СЃС‚СѓРґРµРЅС‚РѕРІ.</Text>
 
             {/* Payment Button - only for Admin */}
             {isAdmin && (
               <TouchableOpacity 
                 onPress={() => {
-                  setModalType('payment');
-                  if (students.length > 0) setPaymentStudentId(students[0].id);
+                  navigation.navigate('Billing');
                 }}
                 className="mb-4 bg-emerald-50 border border-emerald-100 hover:bg-emerald-100/60 p-4 rounded-xl flex-row items-center"
               >
@@ -527,8 +480,8 @@ export default function DashboardScreen({ navigation }: any) {
                   <DollarSign size={18} color="#ffffff" />
                 </View>
                 <View>
-                  <Text className="text-sm font-bold text-slate-800">Внести оплату студента</Text>
-                  <Text className="text-xs text-emerald-700 mt-0.5">Пополняет баланс учебных часов</Text>
+                  <Text className="text-sm font-bold text-slate-800">Р’РЅРµСЃС‚Рё РѕРїР»Р°С‚Сѓ СЃС‚СѓРґРµРЅС‚Р°</Text>
+                  <Text className="text-xs text-emerald-700 mt-0.5">РџРѕРїРѕР»РЅСЏРµС‚ Р±Р°Р»Р°РЅСЃ СѓС‡РµР±РЅС‹С… С‡Р°СЃРѕРІ</Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -541,8 +494,8 @@ export default function DashboardScreen({ navigation }: any) {
                 <Users size={18} color="#ffffff" />
               </View>
               <View>
-                <Text className="text-sm font-bold text-slate-800">База студентов и уровни</Text>
-                <Text className="text-xs text-indigo-700 mt-0.5">Поиск, статус активности и контакты</Text>
+                <Text className="text-sm font-bold text-slate-800">Р‘Р°Р·Р° СЃС‚СѓРґРµРЅС‚РѕРІ Рё СѓСЂРѕРІРЅРё</Text>
+                <Text className="text-xs text-indigo-700 mt-0.5">РџРѕРёСЃРє, СЃС‚Р°С‚СѓСЃ Р°РєС‚РёРІРЅРѕСЃС‚Рё Рё РєРѕРЅС‚Р°РєС‚С‹</Text>
               </View>
             </TouchableOpacity>
 
@@ -554,28 +507,28 @@ export default function DashboardScreen({ navigation }: any) {
                 <Plus size={18} color="#ffffff" />
               </View>
               <View>
-                <Text className="text-sm font-bold text-slate-800">Новая учебная группа</Text>
-                <Text className="text-xs text-slate-500 mt-0.5">Создание группы для расписания</Text>
+                <Text className="text-sm font-bold text-slate-800">РќРѕРІР°СЏ СѓС‡РµР±РЅР°СЏ РіСЂСѓРїРїР°</Text>
+                <Text className="text-xs text-slate-500 mt-0.5">РЎРѕР·РґР°РЅРёРµ РіСЂСѓРїРїС‹ РґР»СЏ СЂР°СЃРїРёСЃР°РЅРёСЏ</Text>
               </View>
             </TouchableOpacity>
           </View>
 
           <View className="pt-6 border-t border-slate-100 mt-6">
-            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Статус системы</Text>
+            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">РЎС‚Р°С‚СѓСЃ СЃРёСЃС‚РµРјС‹</Text>
             <View className="flex-row items-center justify-between text-xs text-slate-600 mb-1">
-              <Text>База данных</Text>
-              <Text className="text-emerald-600 font-bold">● Подключено</Text>
+              <Text>Р‘Р°Р·Р° РґР°РЅРЅС‹С…</Text>
+              <Text className="text-emerald-600 font-bold">в—Џ РџРѕРґРєР»СЋС‡РµРЅРѕ</Text>
             </View>
             <View className="flex-row items-center justify-between text-xs text-slate-600">
-              <Text>Синхронизация данных</Text>
-              <Text className="text-indigo-600 font-bold">Реактивная локальная</Text>
+              <Text>РЎРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ РґР°РЅРЅС‹С…</Text>
+              <Text className="text-indigo-600 font-bold">Р РµР°РєС‚РёРІРЅР°СЏ Р»РѕРєР°Р»СЊРЅР°СЏ</Text>
             </View>
           </View>
         </View>
 
       </View>
 
-      {/* 1. MODAL: СПИСОК АКТИВНЫХ СТУДЕНТОВ (По нажатию на карточку "Активные студенты") */}
+      {/* 1. MODAL: РЎРџРРЎРћРљ РђРљРўРР’РќР«РҐ РЎРўРЈР”Р•РќРўРћР’ (РџРѕ РЅР°Р¶Р°С‚РёСЋ РЅР° РєР°СЂС‚РѕС‡РєСѓ "РђРєС‚РёРІРЅС‹Рµ СЃС‚СѓРґРµРЅС‚С‹") */}
       <Modal animationType="slide" transparent={true} visible={activeStudentsModalOpen} onRequestClose={() => setActiveStudentsModalOpen(false)}>
         <View className="flex-1 justify-center items-center bg-black/60 p-4">
           <View className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
@@ -585,9 +538,9 @@ export default function DashboardScreen({ navigation }: any) {
                   <Users size={20} color="#ffffff" />
                 </View>
                 <View>
-                  <Text className="text-lg font-bold text-white">Список активных студентов</Text>
+                  <Text className="text-lg font-bold text-white">РЎРїРёСЃРѕРє Р°РєС‚РёРІРЅС‹С… СЃС‚СѓРґРµРЅС‚РѕРІ</Text>
                   <Text className="text-xs text-indigo-200">
-                    Всего активных: {activeStudents} студентов
+                    Р’СЃРµРіРѕ Р°РєС‚РёРІРЅС‹С…: {activeStudents} СЃС‚СѓРґРµРЅС‚РѕРІ
                   </Text>
                 </View>
               </View>
@@ -602,7 +555,7 @@ export default function DashboardScreen({ navigation }: any) {
               <TextInput
                 value={activeStudentsSearch}
                 onChangeText={setActiveStudentsSearch}
-                placeholder="Поиск активного студента по имени, email или уровню..."
+                placeholder="РџРѕРёСЃРє Р°РєС‚РёРІРЅРѕРіРѕ СЃС‚СѓРґРµРЅС‚Р° РїРѕ РёРјРµРЅРё, email РёР»Рё СѓСЂРѕРІРЅСЋ..."
                 className="flex-1 text-xs text-slate-800 py-1"
               />
             </View>
@@ -625,15 +578,15 @@ export default function DashboardScreen({ navigation }: any) {
                       </View>
                       <View className="flex-1">
                         <Text className="text-sm font-bold text-slate-800">{std.name}</Text>
-                        <Text className="text-xs text-slate-400">{std.email} • {std.phone}</Text>
-                        <Text className="text-[11px] text-indigo-600 font-semibold mt-0.5">Уровень: {std.level}</Text>
+                        <Text className="text-xs text-slate-400">{std.email} вЂў {std.phone}</Text>
+                        <Text className="text-[11px] text-indigo-600 font-semibold mt-0.5">РЈСЂРѕРІРµРЅСЊ: {std.level}</Text>
                       </View>
                     </View>
 
                     <View className="items-end gap-1.5">
-                      <StudentStatusBadge student={std} size="sm" />
+                      <StudentStatusBadge student={std} size="sm" interactive={isAdmin} />
                       <Text className="text-xs font-bold text-slate-700 bg-white border border-slate-200 px-2.5 py-0.5 rounded-full">
-                        {std.balance} ч.
+                        {std.balance} С‡.
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -641,23 +594,23 @@ export default function DashboardScreen({ navigation }: any) {
 
                 {filteredActiveStudents.length === 0 && (
                   <View className="py-12 items-center">
-                    <Text className="text-slate-400 text-xs">Активных студентов не найдено.</Text>
+                    <Text className="text-slate-400 text-xs">РђРєС‚РёРІРЅС‹С… СЃС‚СѓРґРµРЅС‚РѕРІ РЅРµ РЅР°Р№РґРµРЅРѕ.</Text>
                   </View>
                 )}
               </View>
             </ScrollView>
 
             <View className="p-4 border-t border-slate-200 flex-row justify-between items-center bg-slate-50">
-              <Text className="text-xs text-slate-500">Нажмите на студента для открытия его личного дела</Text>
+              <Text className="text-xs text-slate-500">РќР°Р¶РјРёС‚Рµ РЅР° СЃС‚СѓРґРµРЅС‚Р° РґР»СЏ РѕС‚РєСЂС‹С‚РёСЏ РµРіРѕ Р»РёС‡РЅРѕРіРѕ РґРµР»Р°</Text>
               <TouchableOpacity onPress={() => setActiveStudentsModalOpen(false)} className="px-4 py-2 bg-slate-800 rounded-lg">
-                <Text className="text-white text-xs font-bold">Закрыть</Text>
+                <Text className="text-white text-xs font-bold">Р—Р°РєСЂС‹С‚СЊ</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* 2. MODAL: СПИСОК ЗАПЛАНИРОВАННЫХ УРОКОВ (По нажатию на карточку "Запланировано уроков") */}
+      {/* 2. MODAL: РЎРџРРЎРћРљ Р—РђРџР›РђРќРР РћР’РђРќРќР«РҐ РЈР РћРљРћР’ (РџРѕ РЅР°Р¶Р°С‚РёСЋ РЅР° РєР°СЂС‚РѕС‡РєСѓ "Р—Р°РїР»Р°РЅРёСЂРѕРІР°РЅРѕ СѓСЂРѕРєРѕРІ") */}
       <Modal animationType="slide" transparent={true} visible={scheduledLessonsModalOpen} onRequestClose={() => setScheduledLessonsModalOpen(false)}>
         <View className="flex-1 justify-center items-center bg-black/60 p-4">
           <View className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
@@ -667,9 +620,9 @@ export default function DashboardScreen({ navigation }: any) {
                   <GraduationCap size={20} color="#ffffff" />
                 </View>
                 <View>
-                  <Text className="text-lg font-bold text-white">Запланированные уроки</Text>
+                  <Text className="text-lg font-bold text-white">Р—Р°РїР»Р°РЅРёСЂРѕРІР°РЅРЅС‹Рµ СѓСЂРѕРєРё</Text>
                   <Text className="text-xs text-indigo-200">
-                    Всего в графике: {pendingLessons} уроков
+                    Р’СЃРµРіРѕ РІ РіСЂР°С„РёРєРµ: {pendingLessons} СѓСЂРѕРєРѕРІ
                   </Text>
                 </View>
               </View>
@@ -684,7 +637,7 @@ export default function DashboardScreen({ navigation }: any) {
               <TextInput
                 value={scheduledLessonsSearch}
                 onChangeText={setScheduledLessonsSearch}
-                placeholder="Поиск по названию группы, теме или преподавателю..."
+                placeholder="РџРѕРёСЃРє РїРѕ РЅР°Р·РІР°РЅРёСЋ РіСЂСѓРїРїС‹, С‚РµРјРµ РёР»Рё РїСЂРµРїРѕРґР°РІР°С‚РµР»СЋ..."
                 className="flex-1 text-xs text-slate-800 py-1"
               />
             </View>
@@ -693,7 +646,7 @@ export default function DashboardScreen({ navigation }: any) {
             <ScrollView className="p-4" showsVerticalScrollIndicator={true}>
               <View className="gap-3">
                 {filteredScheduledLessons.map(lesson => {
-                  const displayName = lesson.groupName || lesson.studentName || 'Учебная группа';
+                  const displayName = lesson.groupName || lesson.studentName || 'РЈС‡РµР±РЅР°СЏ РіСЂСѓРїРїР°';
                   return (
                     <View 
                       key={lesson.id} 
@@ -707,11 +660,11 @@ export default function DashboardScreen({ navigation }: any) {
                           <View className="flex-row items-center gap-2">
                             <Text className="text-sm font-bold text-slate-800">{displayName}</Text>
                             <View className="bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
-                              <Text className="text-[10px] font-bold text-indigo-700">Группа</Text>
+                              <Text className="text-[10px] font-bold text-indigo-700">Р“СЂСѓРїРїР°</Text>
                             </View>
                           </View>
-                          <Text className="text-xs text-indigo-600 font-bold mt-0.5">Тема: {lesson.topic}</Text>
-                          <Text className="text-xs text-slate-400 mt-0.5">Преподаватель: {lesson.teacherName}</Text>
+                          <Text className="text-xs text-indigo-600 font-bold mt-0.5">РўРµРјР°: {lesson.topic}</Text>
+                          <Text className="text-xs text-slate-400 mt-0.5">РџСЂРµРїРѕРґР°РІР°С‚РµР»СЊ: {lesson.teacherName}</Text>
                         </View>
                       </View>
 
@@ -729,7 +682,7 @@ export default function DashboardScreen({ navigation }: any) {
 
                 {filteredScheduledLessons.length === 0 && (
                   <View className="py-12 items-center">
-                    <Text className="text-slate-400 text-xs">Запланированных уроков не найдено.</Text>
+                    <Text className="text-slate-400 text-xs">Р—Р°РїР»Р°РЅРёСЂРѕРІР°РЅРЅС‹С… СѓСЂРѕРєРѕРІ РЅРµ РЅР°Р№РґРµРЅРѕ.</Text>
                   </View>
                 )}
               </View>
@@ -739,30 +692,30 @@ export default function DashboardScreen({ navigation }: any) {
               <TouchableOpacity 
                 onPress={() => {
                   setScheduledLessonsModalOpen(false);
-                  handleOpenScheduleModal();
+                  navigation.navigate('Schedule');
                 }}
                 className="px-4 py-2 bg-indigo-600 rounded-lg flex-row items-center gap-1.5"
               >
                 <Plus size={14} color="#ffffff" />
-                <Text className="text-white text-xs font-bold">Назначить новый урок</Text>
+                <Text className="text-white text-xs font-bold">РќР°Р·РЅР°С‡РёС‚СЊ РЅРѕРІС‹Р№ СѓСЂРѕРє</Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => setScheduledLessonsModalOpen(false)} className="px-4 py-2 bg-slate-800 rounded-lg">
-                <Text className="text-white text-xs font-bold">Закрыть</Text>
+                <Text className="text-white text-xs font-bold">Р—Р°РєСЂС‹С‚СЊ</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* 3. MODAL: ДОБАВИТЬ ГРУППУ В "УЧЕБНЫЕ ГРУППЫ" (FIXED HEADER & FOOTER, FULLY SCROLLABLE) */}
+      {/* 3. MODAL: Р”РћР‘РђР’РРўР¬ Р“Р РЈРџРџРЈ Р’ "РЈР§Р•Р‘РќР«Р• Р“Р РЈРџРџР«" (FIXED HEADER & FOOTER, FULLY SCROLLABLE) */}
       <Modal animationType="slide" transparent={true} visible={addGroupModalOpen} onRequestClose={() => setAddGroupModalOpen(false)}>
         <View className="flex-1 justify-center items-center bg-black/60 p-4">
           <View className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[85vh] flex flex-col overflow-hidden">
             
             {/* Pinned Header */}
             <View className="px-6 py-4 border-b border-slate-100 flex-row justify-between items-center bg-slate-50">
-              <Text className="text-lg font-bold text-slate-900">Создать новую учебную группу</Text>
+              <Text className="text-lg font-bold text-slate-900">РЎРѕР·РґР°С‚СЊ РЅРѕРІСѓСЋ СѓС‡РµР±РЅСѓСЋ РіСЂСѓРїРїСѓ</Text>
               <TouchableOpacity onPress={() => setAddGroupModalOpen(false)} className="p-1 rounded-full hover:bg-slate-200">
                 <X size={18} color="#64748b" />
               </TouchableOpacity>
@@ -779,19 +732,19 @@ export default function DashboardScreen({ navigation }: any) {
               <View className="space-y-4">
                 <View>
                   <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">
-                    Название группы *
+                    РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹ *
                   </Text>
                   <TextInput
                     value={newGroupTitle}
                     onChangeText={setNewGroupTitle}
-                    placeholder="Например: Группа B1+ Интенсив / IELTS Подготовка"
+                    placeholder="РќР°РїСЂРёРјРµСЂ: Р“СЂСѓРїРїР° B1+ РРЅС‚РµРЅСЃРёРІ / IELTS РџРѕРґРіРѕС‚РѕРІРєР°"
                     className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm"
                   />
                 </View>
 
                 <View>
                   <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">
-                    Уровень подготовки (CEFR)
+                    РЈСЂРѕРІРµРЅСЊ РїРѕРґРіРѕС‚РѕРІРєРё (CEFR)
                   </Text>
                   <View className="flex-row flex-wrap gap-1.5 bg-slate-50 border border-slate-200 p-1.5 rounded-lg">
                     {['A1', 'A2', 'B1', 'B2', 'C1', 'C2'].map(lvl => (
@@ -812,271 +765,79 @@ export default function DashboardScreen({ navigation }: any) {
 
                 <View>
                   <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">
-                    Описание и фокус курса
+                    РћРїРёСЃР°РЅРёРµ Рё С„РѕРєСѓСЃ РєСѓСЂСЃР°
                   </Text>
                   <TextInput
                     value={newGroupDesc}
                     onChangeText={setNewGroupDesc}
-                    placeholder="Например: Разговорная практика, грамматика и аудирование"
+                    placeholder="РќР°РїСЂРёРјРµСЂ: Р Р°Р·РіРѕРІРѕСЂРЅР°СЏ РїСЂР°РєС‚РёРєР°, РіСЂР°РјРјР°С‚РёРєР° Рё Р°СѓРґРёСЂРѕРІР°РЅРёРµ"
                     className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm"
                   />
                 </View>
 
                 <View>
-                  <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">
-                    Назначенный преподаватель
+                  <Text className="text-xs font-semibold text-slate-500 uppercase mb-2">
+                  Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅС‹Р№ РїСЂРµРїРѕРґР°РІР°С‚РµР»СЊ *
                   </Text>
-                  <TextInput
-                    value={newGroupTeacher}
-                    onChangeText={setNewGroupTeacher}
-                    placeholder="Елена Смирнова"
-                    className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm"
-                  />
+                  <View className="gap-2">
+                  {teacherAccounts.map(teacher => (
+                    <TouchableOpacity
+                      key={teacher.id}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: newGroupTeacherId === teacher.id }}
+                      onPress={() => setNewGroupTeacherId(teacher.id)}
+                      className={`rounded-lg border p-3 ${newGroupTeacherId === teacher.id ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white'}`}
+                    >
+                      <Text className="text-sm font-semibold text-slate-800">{teacher.name}</Text>
+                      <Text className="text-xs text-slate-500">{teacher.email}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {teacherAccounts.length === 0 && (
+                    <Text className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+                      РЎРЅР°С‡Р°Р»Р° СЃРѕР·РґР°Р№С‚Рµ РїСЂРµРїРѕРґР°РІР°С‚РµР»СЏ РІ СЂР°Р·РґРµР»Рµ В«РџСЂРµРїРѕРґР°РІР°С‚РµР»РёВ».
+                    </Text>
+                  )}
+                  </View>
+                </View>
+
+                <View>
+                  <Text className="text-xs font-semibold text-slate-500 uppercase mb-2">
+                  РЎС‚СѓРґРµРЅС‚С‹ РіСЂСѓРїРїС‹
+                  </Text>
+                  <View className="gap-2">
+                  {students.map(student => {
+                    const selected = newGroupStudentIds.includes(student.id);
+                    return (
+                      <TouchableOpacity
+                        key={student.id}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: selected }}
+                        onPress={() => setNewGroupStudentIds(current => selected
+                          ? current.filter(id => id !== student.id)
+                          : [...current, student.id])}
+                        className={`rounded-lg border p-3 ${selected ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white'}`}
+                      >
+                        <Text className="text-sm font-semibold text-slate-800">{student.name}</Text>
+                        <Text className="text-xs text-slate-500">{student.level} В· {student.email}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {students.length === 0 && <Text className="text-xs text-slate-500">РЎРЅР°С‡Р°Р»Р° РґРѕР±Р°РІСЊС‚Рµ СЃС‚СѓРґРµРЅС‚РѕРІ РІ Р±Р°Р·Сѓ.</Text>}
+                  </View>
                 </View>
               </View>
             </ScrollView>
 
+            {groupFormError ? <Text className="px-6 pb-2 text-xs font-medium text-rose-700">{groupFormError}</Text> : null}
             {/* Pinned Footer with Actions */}
             <View className="px-6 py-3.5 border-t border-slate-100 bg-slate-50 flex-row justify-end gap-3">
               <TouchableOpacity onPress={() => setAddGroupModalOpen(false)} className="px-4 py-2.5 rounded-lg border border-slate-200 bg-white">
-                <Text className="text-xs font-semibold text-slate-500">Отмена</Text>
+                <Text className="text-xs font-semibold text-slate-500">РћС‚РјРµРЅР°</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleAddGroup} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow">
-                <Text className="text-xs font-bold text-white">Создать группу</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* 4. MODAL: НОВЫЙ СТУДЕНТ (FIXED HEADER & FOOTER, FULLY SCROLLABLE) */}
-      <Modal animationType="slide" transparent={true} visible={modalType === 'student'} onRequestClose={() => setModalType(null)}>
-        <View className="flex-1 justify-center items-center bg-black/50 p-4">
-          <View className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[85vh] flex flex-col overflow-hidden">
-            
-            {/* Pinned Header */}
-            <View className="px-6 py-4 border-b border-slate-100 flex-row justify-between items-center bg-slate-50">
-              <Text className="text-lg font-bold text-slate-900">Регистрация студента в базу CRM</Text>
-              <TouchableOpacity onPress={() => setModalType(null)} className="p-1 rounded-full hover:bg-slate-200">
-                <X size={18} color="#64748b" />
+              <TouchableOpacity onPress={() => void handleAddGroup()} disabled={groupSaving || teacherAccounts.length === 0} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow">
+                <Text className="text-xs font-bold text-white">{groupSaving ? 'РЎРѕС…СЂР°РЅРµРЅРёРµ...' : 'РЎРѕР·РґР°С‚СЊ РіСЂСѓРїРїСѓ'}</Text>
               </TouchableOpacity>
             </View>
-
-            {/* Scrollable Form Body */}
-            <ScrollView 
-              className="flex-1"
-              style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 24, paddingBottom: 24 }}
-              showsVerticalScrollIndicator={true}
-              keyboardShouldPersistTaps="handled"
-            >
-              <View className="space-y-4">
-                <View>
-                  <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">ФИО студента *</Text>
-                  <TextInput value={studentName} onChangeText={setStudentName} placeholder="Иван Иванов" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" />
-                </View>
-
-                <View>
-                  <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Электронная почта *</Text>
-                  <TextInput value={studentEmail} onChangeText={setStudentEmail} keyboardType="email-address" placeholder="ivan@example.com" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" />
-                </View>
-
-                <View className="grid grid-cols-2 gap-4">
-                  <View>
-                    <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Телефон</Text>
-                    <TextInput value={studentPhone} onChangeText={setStudentPhone} placeholder="+7 (999) 000-00-00" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" />
-                  </View>
-                  <View>
-                    <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Стартовый баланс часов</Text>
-                    <TextInput value={studentBalance} onChangeText={setStudentBalance} keyboardType="numeric" placeholder="10" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" />
-                  </View>
-                </View>
-
-                <View className="grid grid-cols-2 gap-4">
-                  <View>
-                    <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Уровень по CEFR</Text>
-                    <TextInput value={studentLevel} onChangeText={setStudentLevel} placeholder="Intermediate (B1)" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" />
-                  </View>
-                  <View>
-                    <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Возрастная категория</Text>
-                    <View className="flex-row bg-slate-100 rounded-lg p-1">
-                      {['Kids', 'Teens', 'Adults'].map((age) => (
-                        <TouchableOpacity 
-                          key={age} 
-                          onPress={() => setStudentAge(age as any)}
-                          className={`flex-1 py-1.5 rounded items-center ${studentAge === age ? 'bg-white shadow' : ''}`}
-                        >
-                          <Text className="text-xs font-bold text-slate-800">
-                            {age === 'Kids' ? 'Дети' : age === 'Teens' ? 'Подростки' : 'Взрослые'}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-                </View>
-              </View>
-            </ScrollView>
-
-            {/* Pinned Footer with Actions */}
-            <View className="px-6 py-3.5 border-t border-slate-100 bg-slate-50 flex-row justify-end gap-3">
-              <TouchableOpacity onPress={() => setModalType(null)} className="px-4 py-2.5 rounded-lg border border-slate-200 bg-white">
-                <Text className="text-xs font-semibold text-slate-500">Отмена</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleAddStudent} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow">
-                <Text className="text-xs font-bold text-white">Сохранить студента</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* 5. MODAL: НАЗНАЧИТЬ УРОК - ВЫБОР ГРУППЫ ВМЕСТО СТУДЕНТА (FIXED HEADER & FOOTER, FULLY SCROLLABLE) */}
-      <Modal animationType="slide" transparent={true} visible={modalType === 'lesson'} onRequestClose={() => setModalType(null)}>
-        <View className="flex-1 justify-center items-center bg-black/50 p-4">
-          <View className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[85vh] flex flex-col overflow-hidden">
-            
-            {/* Pinned Header */}
-            <View className="px-6 py-4 border-b border-slate-100 flex-row justify-between items-center bg-slate-50">
-              <View>
-                <Text className="text-lg font-bold text-slate-900 mb-0.5">Запланировать учебное занятие</Text>
-                <Text className="text-xs text-slate-400">
-                  Выберите учебную группу для проведения урока
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setModalType(null)} className="p-1 rounded-full hover:bg-slate-200">
-                <X size={18} color="#64748b" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Scrollable Form Body */}
-            <ScrollView 
-              className="flex-1"
-              style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 24, paddingBottom: 24 }}
-              showsVerticalScrollIndicator={true}
-              keyboardShouldPersistTaps="handled"
-            >
-              <View className="space-y-4">
-                {/* SELECT GROUP INSTEAD OF STUDENT */}
-                <View>
-                  <Text className="text-xs font-semibold text-slate-500 uppercase mb-2">Выберите группу *</Text>
-                  <View className="flex-row flex-wrap gap-2">
-                    {groups.map((g) => {
-                      const count = students.filter(s => matchStudentLevel(s.level, g.key)).length;
-                      const isSelected = lessonGroupId === g.id;
-                      return (
-                        <TouchableOpacity 
-                          key={g.id} 
-                          onPress={() => {
-                            setLessonGroupId(g.id);
-                            setLessonGroupName(g.title);
-                            if (g.teacherName) setLessonTeacher(g.teacherName);
-                          }}
-                          className={`px-3 py-2 rounded-xl border flex-1 min-w-[130px] flex-row justify-between items-center ${
-                            isSelected 
-                              ? 'bg-indigo-50 border-indigo-500 border-2 shadow-sm' 
-                              : 'bg-slate-50 border-slate-200'
-                          }`}
-                        >
-                          <View>
-                            <Text className={`text-xs font-bold ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}>{g.title}</Text>
-                            <Text className="text-[10px] text-slate-400">{g.desc || g.level}</Text>
-                          </View>
-                          <View className={`px-2 py-0.5 rounded-full ${isSelected ? 'bg-indigo-600' : 'bg-slate-200'}`}>
-                            <Text className={`text-[10px] font-bold ${isSelected ? 'text-white' : 'text-slate-600'}`}>
-                              {count}
-                            </Text>
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                <View>
-                  <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Тема занятия / Материалы *</Text>
-                  <TextInput value={lessonTopic} onChangeText={setLessonTopic} placeholder="Например: Разбор Present Continuous и чтение" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" />
-                </View>
-
-                <View className="grid grid-cols-2 gap-4">
-                  <View>
-                    <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Дата занятия</Text>
-                    <TextInput value={lessonDate} onChangeText={setLessonDate} placeholder="2026-05-28" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" />
-                  </View>
-                  <View>
-                    <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Время (ЧЧ:ММ)</Text>
-                    <TextInput value={lessonTime} onChangeText={setLessonTime} placeholder="12:00" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" />
-                  </View>
-                </View>
-
-                <View>
-                  <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Преподаватель</Text>
-                  <TextInput value={lessonTeacher} onChangeText={setLessonTeacher} placeholder="Елена Смирнова" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" />
-                </View>
-              </View>
-            </ScrollView>
-
-            {/* Pinned Footer with Actions */}
-            <View className="px-6 py-3.5 border-t border-slate-100 bg-slate-50 flex-row justify-end gap-3">
-              <TouchableOpacity onPress={() => setModalType(null)} className="px-4 py-2.5 rounded-lg border border-slate-200 bg-white">
-                <Text className="text-xs font-semibold text-slate-500">Отмена</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleAddLesson} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow">
-                <Text className="text-xs font-bold text-white">Создать урок для группы</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* 6. MODAL: НОВЫЙ ПЛАТЕЖ */}
-      <Modal animationType="slide" transparent={true} visible={modalType === 'payment'} onRequestClose={() => setModalType(null)}>
-        <View className="flex-1 justify-center items-center bg-black/50 p-4">
-          <View className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl max-h-[90vh]">
-            <ScrollView showsVerticalScrollIndicator={true}>
-              <Text className="text-lg font-bold text-slate-900 mb-4">Внести платеж / продажу</Text>
-
-              <View className="space-y-4">
-                <View>
-                  <Text className="text-xs font-semibold text-slate-500 uppercase mb-2">Выберите студента</Text>
-                  <View className="bg-slate-100 rounded-lg p-2 flex-wrap flex-row gap-1">
-                    {students.map((s) => (
-                      <TouchableOpacity 
-                         key={s.id} 
-                         onPress={() => setPaymentStudentId(s.id)}
-                         className={`px-3 py-1.5 rounded-md ${paymentStudentId === s.id ? 'bg-indigo-600' : 'bg-slate-200'}`}
-                      >
-                        <Text className={`text-xs ${paymentStudentId === s.id ? 'text-white font-bold' : 'text-slate-700'}`}>{s.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-
-                <View className="grid grid-cols-2 gap-4">
-                  <View>
-                    <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Сумма ($ USD)</Text>
-                    <TextInput value={paymentAmount} onChangeText={setPaymentAmount} keyboardType="numeric" placeholder="150" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm font-bold" />
-                  </View>
-                  <View className="justify-center pt-4">
-                    <Text className="text-xs text-slate-500 font-medium">Авто-зачисление: 1 час за каждые $25</Text>
-                  </View>
-                </View>
-
-                <View>
-                  <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">Описание счёта</Text>
-                  <TextInput value={paymentDesc} onChangeText={setPaymentDesc} placeholder="Оплачен пакет из 10 занятий" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm" />
-                </View>
-              </View>
-
-              <View className="flex-row justify-end space-x-3 mt-6 pt-2">
-                <TouchableOpacity onPress={() => setModalType(null)} className="px-4 py-2.5 rounded-lg border border-slate-200">
-                  <Text className="text-xs font-semibold text-slate-400">Отмена</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleAddPayment} className="px-5 py-2.5 bg-emerald-600 rounded-lg shadow">
-                  <Text className="text-xs font-bold text-white">Провести</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1088,7 +849,8 @@ export default function DashboardScreen({ navigation }: any) {
         onClose={() => setSelectedStudentInfo(null)}
         navigation={navigation}
         onScheduleLesson={() => {
-          handleOpenScheduleModal();
+          setSelectedStudentInfo(null);
+          navigation.navigate('Schedule');
         }}
       />
 
@@ -1096,19 +858,15 @@ export default function DashboardScreen({ navigation }: any) {
       <GroupDetailModal
         visible={!!groupModalKey}
         groupKey={groupModalKey}
+        group={groups.find(group => group.id === groupModalKey)}
         students={students}
         onClose={() => setGroupModalKey(null)}
         onSelectStudent={(std) => setSelectedStudentInfo(std)}
-        onAddStudentToGroup={(grp) => {
-          setStudentLevel(grp);
-          setModalType('student');
-        }}
-        onDeleteGroup={(grpKey) => {
-          const target = groups.find(g => g.key === grpKey || g.title === grpKey || g.id === grpKey);
-          if (target) {
-            setGroupToDelete(target);
-          }
-        }}
+        onAddStudentToGroup={isAdmin ? () => navigation.navigate('Students') : undefined}
+        onDeleteGroup={isAdmin ? (grpKey) => {
+          const target = groups.find(g => g.id === grpKey || g.key === grpKey);
+          if (target) setGroupToDelete(target);
+        } : undefined}
       />
 
       {/* DELETE GROUP CONFIRMATION MODAL */}
@@ -1133,11 +891,11 @@ export default function DashboardScreen({ navigation }: any) {
             </View>
 
             <Text className="text-lg font-bold text-slate-900 mb-2">
-              Удалить группу «{groupToDelete?.title}»?
+              РЈРґР°Р»РёС‚СЊ РіСЂСѓРїРїСѓ В«{groupToDelete?.title}В»?
             </Text>
 
             <Text className="text-sm text-slate-600 mb-6 leading-relaxed">
-              Вы действительно хотите удалить эту группу из учебных групп? Студенты сохранятся в базе данных школы.
+              Р’С‹ РґРµР№СЃС‚РІРёС‚РµР»СЊРЅРѕ С…РѕС‚РёС‚Рµ СѓРґР°Р»РёС‚СЊ СЌС‚Сѓ РіСЂСѓРїРїСѓ РёР· СѓС‡РµР±РЅС‹С… РіСЂСѓРїРї? РЎС‚СѓРґРµРЅС‚С‹ СЃРѕС…СЂР°РЅСЏС‚СЃСЏ РІ Р±Р°Р·Рµ РґР°РЅРЅС‹С… С€РєРѕР»С‹.
             </Text>
 
             <View className="flex-row justify-end gap-3">
@@ -1145,26 +903,15 @@ export default function DashboardScreen({ navigation }: any) {
                 onPress={() => setGroupToDelete(null)}
                 className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50"
               >
-                <Text className="text-sm font-semibold text-slate-700">Отмена</Text>
+                <Text className="text-sm font-semibold text-slate-700">РћС‚РјРµРЅР°</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => {
-                  if (groupToDelete) {
-                    dispatch(deleteGroup(groupToDelete.id));
-                    if (selectedLevelGroup === groupToDelete.key) {
-                      setSelectedLevelGroup(null);
-                    }
-                    if (groupModalKey === groupToDelete.key) {
-                      setGroupModalKey(null);
-                    }
-                    setGroupToDelete(null);
-                  }
-                }}
+                onPress={() => void handleDeleteGroup()}
                 className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 flex-row items-center gap-2 shadow-sm"
               >
                 <Trash2 size={16} color="#ffffff" />
-                <Text className="text-sm font-bold text-white">Да, удалить группу</Text>
+                <Text className="text-sm font-bold text-white">Р”Р°, СѓРґР°Р»РёС‚СЊ РіСЂСѓРїРїСѓ</Text>
               </TouchableOpacity>
             </View>
           </View>

@@ -19,6 +19,9 @@ public class Transaction {
     private String type; // Income, Expense
     private String category; // Tuition, Salary, Materials, Rent, Other
     private LocalDate date;
+    private Integer lessonsPurchased;
+    private LocalDate expiresAt;
+    private String currency;
     private String description;
 
     public Transaction() {}
@@ -50,6 +53,12 @@ public class Transaction {
 
     public LocalDate getDate() { return date; }
     public void setDate(LocalDate date) { this.date = date; }
+    public Integer getLessonsPurchased() { return lessonsPurchased; }
+    public void setLessonsPurchased(Integer lessonsPurchased) { this.lessonsPurchased = lessonsPurchased; }
+    public LocalDate getExpiresAt() { return expiresAt; }
+    public void setExpiresAt(LocalDate expiresAt) { this.expiresAt = expiresAt; }
+    public String getCurrency() { return currency; }
+    public void setCurrency(String currency) { this.currency = currency; }
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }

@@ -4,7 +4,10 @@ import jakarta.persistence.*;
 import java.time.LocalDate;
 
 @Entity
-@Table(name = "lessons")
+@Table(
+        name = "lessons",
+        uniqueConstraints = @UniqueConstraint(columnNames = {"weekly_schedule_id", "date"})
+)
 public class Lesson {
 
     @Id
@@ -12,8 +15,16 @@ public class Lesson {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "student_id", nullable = false)
+    @JoinColumn(name = "student_id")
     private Student student;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "group_id")
+    private SchoolGroup group;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "weekly_schedule_id")
+    private WeeklySchedule weeklySchedule;
 
     private LocalDate date;
     private String time; // e.g. "10:00"
@@ -44,6 +55,10 @@ public class Lesson {
 
     public Student getStudent() { return student; }
     public void setStudent(Student student) { this.student = student; }
+    public SchoolGroup getGroup() { return group; }
+    public void setGroup(SchoolGroup group) { this.group = group; }
+    public WeeklySchedule getWeeklySchedule() { return weeklySchedule; }
+    public void setWeeklySchedule(WeeklySchedule weeklySchedule) { this.weeklySchedule = weeklySchedule; }
 
     public LocalDate getDate() { return date; }
     public void setDate(LocalDate date) { this.date = date; }

@@ -25,6 +25,9 @@ public class StaffAccount {
     @Column(nullable = false, columnDefinition = "boolean default true")
     private boolean enabled = true;
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean canViewStudentPayments;
+
     public StaffAccount() {}
 
     public StaffAccount(String email, String name, String passwordHash, String role) {
@@ -42,4 +45,8 @@ public class StaffAccount {
     public void setRole(String role) { this.role = role; }
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public boolean canViewStudentPayments() { return canViewStudentPayments; }
+    public void setCanViewStudentPayments(boolean canViewStudentPayments) {
+        this.canViewStudentPayments = canViewStudentPayments;
+    }
 }

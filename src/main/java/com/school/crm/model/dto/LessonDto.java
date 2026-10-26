@@ -7,10 +7,12 @@ public class LessonDto {
 
     private Long id;
 
-    @NotNull(message = "Student ID selection is required")
     private Long studentId;
 
     private String studentName; // Readable student name from the DB
+    private Long groupId;
+    private String groupName;
+    private Long weeklyScheduleId;
 
     @NotNull(message = "Lesson date is required")
     private LocalDate date;
@@ -44,6 +46,12 @@ public class LessonDto {
 
     public String getStudentName() { return studentName; }
     public void setStudentName(String studentName) { this.studentName = studentName; }
+    public Long getGroupId() { return groupId; }
+    public void setGroupId(Long groupId) { this.groupId = groupId; }
+    public String getGroupName() { return groupName; }
+    public void setGroupName(String groupName) { this.groupName = groupName; }
+    public Long getWeeklyScheduleId() { return weeklyScheduleId; }
+    public void setWeeklyScheduleId(Long weeklyScheduleId) { this.weeklyScheduleId = weeklyScheduleId; }
 
     public LocalDate getDate() { return date; }
     public void setDate(LocalDate date) { this.date = date; }

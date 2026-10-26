@@ -22,11 +22,12 @@ export default defineConfig({
       timeout: 120_000,
       env: {
         SERVER_PORT: '8081',
-        DATABASE_URL: 'jdbc:h2:mem:english_school_e2e;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE',
-        DATABASE_USER: 'sa',
-        DATABASE_PASSWORD: '',
-        DATABASE_DRIVER: 'org.h2.Driver',
-        DATABASE_DIALECT: 'org.hibernate.dialect.H2Dialect',
+        SPRING_DATASOURCE_URL: 'jdbc:h2:mem:english_school_e2e;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE',
+        SPRING_DATASOURCE_USERNAME: 'sa',
+        SPRING_DATASOURCE_PASSWORD: '',
+        SPRING_DATASOURCE_DRIVER_CLASS_NAME: 'org.h2.Driver',
+        SPRING_JPA_DATABASE_PLATFORM: 'org.hibernate.dialect.H2Dialect',
+        SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: 'org.hibernate.dialect.H2Dialect',
         ADMIN_REGISTRATION_CODE: adminRegistrationCode,
         ADMIN_EMAIL: '',
         ADMIN_PASSWORD: ''

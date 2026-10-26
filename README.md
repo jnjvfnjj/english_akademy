@@ -45,6 +45,7 @@ com.school.crm
 2. **Lesson Entity**: Defines scheduled lessons with teacher names, student mapping, times, and lifecycle states (`Scheduled`, `Completed`, `Cancelled`).
 3. **Transaction Entity**: Handles double-entry school accounting. Can reflect Student Tuitions (**Income**) or operating Rent/Teacher Salaries (**Expenses**).
 4. **AuditLog Entity**: Central logging schema tracking mission-critical student hours modifications and state exceptions.
+5. **WeeklySchedule Entity**: Stores recurring weekly class slots, including group, teacher, weekday, start time, topic, and duration.
 
 ---
 
@@ -77,11 +78,12 @@ This capstone project implements **three distinct GoF Design Patterns** to enfor
 
 ## ⚙️ Non-Trivial Complex Business Functions
 
-1. **Lesson Lifecycle Integration**:
-   * Scheduling states are tracked actively. When a student's scheduled lesson is patched to `Completed` status, the application automatically triggers database queries to **deduct 1 hour** from their balance and increments `totalClasses` completed. 
-   * If a completed lesson transitions into `Cancelled` status, their credit balance package hour is automatically restored.
-2. **Tuition Payment and Refills**:
-   * Creating an income transaction of category `Tuition` with matching `pricingTier` automatically selects the correct OOP Strategy, calculates final financial amounts, adds physical hours to the student's profile, and prints a formatted receipt via the custom Builder pattern.
+1. **Weekly Schedule and Lesson Lifecycle**:
+   * Administrators can create recurring weekly class slots and manage each slot's student roster. The scheduler records each occurrence once, then marks it completed after its scheduled end time and deducts one lesson from each enrolled student's positive balance.
+   * Student rosters, completed occurrences, and lesson balances are stored through the backend API. Automatic processing uses Bishkek local time.
+2. **Tuition Packages and Expiry**:
+   * Student registration and additional tuition payments record the amount and purchased lesson count explicitly in Kyrgyz soms, along with the exact payment date and the expiry date one calendar month later. Historical USD entries remain in USD.
+   * Packages with two or fewer lessons remaining appear as in-app admin reminders. Expired packages are cleared by the scheduler. Email reminders are not configured.
 
 ---
 
@@ -118,7 +120,7 @@ if ($LASTEXITCODE -ne 0) { throw "Сборка завершилась ошибк
 java -jar "$env:TEMP\english-school-crm-build\libs\english-school-crm-0.0.1-SNAPSHOT.jar" --create-admin
 ```
 
-Программа запросит email, имя и пароль; пароль вводится скрыто, затем нужно повторить его. Для общей базы перед запуском задайте переменные подключения `DATABASE_URL`, `DATABASE_USER` и `DATABASE_PASSWORD` (или соответствующие `SPRING_DATASOURCE_*`). Главный администратор создаёт дополнительные учётные записи администраторов во вкладке «Админы»; обычные администраторы не могут создавать новых через эту вкладку. Финансовые REST-маршруты и экран управления базой доступны администраторам; преподаватели не видят финансовые суммы и не могут изменять операции через API.
+Программа запросит email, имя и пароль; пароль вводится скрыто, затем нужно повторить его. Для общей базы перед запуском задайте переменные подключения `DATABASE_URL`, `DATABASE_USER` и `DATABASE_PASSWORD` (или соответствующие `SPRING_DATASOURCE_*`). Главный администратор создаёт дополнительные учётные записи администраторов во вкладке «Админы»; обычные администраторы не могут создавать новых через эту вкладку. Администраторы добавляют преподавателей во вкладке «Преподаватели», задавая им ФИО, email и пароль; самостоятельная регистрация преподавателей отключена. Группы сохраняются в базе и могут быть назначены только активным зарегистрированным преподавателям. Учителя видят только свои группы, их студентов и расписание; по умолчанию суммы оплат скрыты, но администратор может отдельно разрешить их просмотр для каждого преподавателя.
 
 Чтобы включить регистрацию администратора на экране входа, задайте серверную переменную `ADMIN_REGISTRATION_CODE` длиной от 16 до 256 символов и перезапустите API. Код запрашивается в форме регистрации администратора и не должен задаваться через `EXPO_PUBLIC_*` или храниться в исходном коде. Любой, кто знает этот код, сможет зарегистрировать административный аккаунт.
 
@@ -141,11 +143,11 @@ java -jar "$env:TEMP\english-school-crm-build\libs\english-school-crm-0.0.1-SNAP
 
 `render.yaml` использует `Dockerfile`; Spring Boot слушает переменную `PORT`, которую Render задаёт для веб-сервиса (по умолчанию `10000`). Локально API по-прежнему работает на `8080`.
 
-На экране входа можно выбрать «Преподаватель» или «Администратор»; после входа преподаватель видит свой профиль с именем и email. Администратор видит список преподавателей и может отключить или восстановить их учётные записи. Отключение отзывает активные сессии, но сохраняет аккаунт и историю. Расписание в профиле пока не показывается: расписание групп хранится на клиенте и ещё не связано с аккаунтами преподавателей на сервере.
+На экране входа можно выбрать «Преподаватель» или «Администратор»; учитель входит по email и паролю, выданным администратором. Администратор видит список преподавателей, может создать аккаунт, настроить показ сумм оплат и отключить или восстановить доступ. Отключение отзывает активные сессии, но сохраняет аккаунт и историю. Группы, участники и расписание хранятся на сервере; учитель получает только данные назначенных ему групп.
 
 При первом входе, если API ещё пуст, клиент переносит туда имеющиеся локальные записи студентов. Проверьте их перед подключением базы с реальными данными. Не задавайте административный пароль в коде или во frontend-переменных окружения.
 
-Для проверки браузерных сценариев установите Chromium командой `npx playwright install chromium`, затем запустите `npm run test:e2e`. Сценарии проверяют переключение роли, профиль преподавателя и управление доступом администратора.
+Для проверки браузерных сценариев установите Chromium командой `npx playwright install chromium`, затем запустите `npm run test:e2e`. Сценарии проверяют переключение роли, вход преподавателя с аккаунтом, созданным администратором, его профиль и управление доступом администратора.
 
 ---
 
@@ -179,9 +181,9 @@ java -jar "$env:TEMP\english-school-crm-build\libs\english-school-crm-0.0.1-SNAP
 ---
 
 ### 🏛️ Описание функционала для демонстрации:
-* **Кабинет Студентов**: Добавление профилей, поиск, фильтр по возрастам и уровням, корректировка балансов уроков.
-* **Кабинет Расписания**: Календарь занятий с изменением статуса («Запланировано», «Завершено», «Отменено»). При завершении занятия с баланса студента автоматически списывается час и начисляется в историю.
-* **Кабинет Финансов (Биллинг)**: Просмотр доходов (Оплаты за обучение) и расходов (Аренда, Зарплаты), создание транзакций, авто-расчет стоимости по выбранной скидочной OOP Стратегии.
+* **Кабинет Студентов**: Регистрация по ФИО, формату обучения, одному или нескольким курсам, сумме в сомах, количеству оплаченных занятий и точной дате оплаты. Профиль показывает остаток занятий, дату оплаты и дату окончания пакета.
+* **Кабинет Расписания**: Недельное расписание повторяющихся занятий с преподавателем и составом группы. Администратор может добавлять и убирать студентов; напротив каждого отображается остаток занятий. После урока система автоматически списывает одно занятие, а администратор видит напоминание при остатке двух занятий или меньше.
+* **Кабинет Финансов (Биллинг)**: Просмотр доходов и расходов; новые оплаты задаются точной суммой, количеством занятий, валютой и датой, без автоматической оценки количества занятий по фиксированной цене. Доходы в сомах и исторические суммы в долларах показываются раздельно.
 * **СУБД Панель**: Наглядное табличное представление базы данных с возможностью очистки таблиц, сброса к эталонным тестовым записям и прямого контроля состояния.
 
 ---

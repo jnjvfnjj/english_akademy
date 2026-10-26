@@ -27,10 +27,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class TeacherLoginProfileIntegrationTest extends StaffIntegrationTestSupport {
 
     @Test
-    void teacherCanRegisterLogInAndOpenOnlyTeacherFeatures() throws Exception {
+    void adminProvisionedTeacherCanLogInAndOpenOnlyTeacherFeatures() throws Exception {
         String email = "teacher-" + System.nanoTime() + "@school.test";
         String password = "TeacherPass123!";
-        mockMvc.perform(post("/api/auth/register")
+        String adminToken = createAdminAndLogin("admin-" + System.nanoTime() + "@school.test");
+        mockMvc.perform(post("/api/admin/teachers")
+                        .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(Map.of(
                                 "email", email,
@@ -38,18 +40,29 @@ class TeacherLoginProfileIntegrationTest extends StaffIntegrationTestSupport {
                                 "name", "Profile Teacher"
                         ))))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.role").value("Teacher"))
-                .andExpect(jsonPath("$.superAdmin").value(false));
+                .andExpect(jsonPath("$.name").value("Profile Teacher"))
+                .andExpect(jsonPath("$.email").value(email))
+                .andExpect(jsonPath("$.canViewStudentPayments").value(false));
 
         String token = login(email, password);
         mockMvc.perform(get("/api/teachers/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Profile Teacher"))
                 .andExpect(jsonPath("$.email").value(email))
-                .andExpect(jsonPath("$.role").value("Teacher"));
+                .andExpect(jsonPath("$.role").value("Teacher"))
+                .andExpect(jsonPath("$.canViewStudentPayments").value(false));
 
         mockMvc.perform(get("/api/admin/teachers").header("Authorization", "Bearer " + token))
                 .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of(
+                                "email", "self-" + System.nanoTime() + "@school.test",
+                                "password", password,
+                                "name", "Self Registered"
+                        ))))
+                .andExpect(status().isUnauthorized());
 
         MvcResult badLogin = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

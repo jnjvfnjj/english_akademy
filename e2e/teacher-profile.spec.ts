@@ -5,10 +5,21 @@ const apiBaseUrl = 'http://127.0.0.1:8081/api';
 test('teacher can log in and open their own profile', async ({ page, request }) => {
   const email = `teacher-${Date.now()}@e2e.school`;
   const password = 'TeacherPass123!';
-  const registration = await request.post(`${apiBaseUrl}/auth/register`, {
+  const admin = await request.post(`${apiBaseUrl}/auth/register/admin`, {
+    data: {
+      email: `admin-${Date.now()}@e2e.school`,
+      password: 'AdminPass123!',
+      name: 'E2E Profile Admin',
+      registrationCode: 'e2e-only-registration-secret-2026'
+    }
+  });
+  expect(admin.status()).toBe(201);
+  const adminSession = await admin.json() as { token: string };
+  const teacher = await request.post(`${apiBaseUrl}/admin/teachers`, {
+    headers: { Authorization: `Bearer ${adminSession.token}` },
     data: { email, password, name: 'E2E Profile Teacher' }
   });
-  expect(registration.status()).toBe(201);
+  expect(teacher.status()).toBe(201);
 
   await page.goto('/');
   await page.getByRole('button', { name: 'Преподаватель', exact: true }).click();

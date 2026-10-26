@@ -77,4 +77,31 @@ public class TransactionServiceImplTest {
         verify(studentRepository, times(1)).save(student);
         verify(transactionRepository, times(1)).save(any(Transaction.class));
     }
+
+    @Test
+    void createTransactionUsesExplicitLessonCountAndPaymentDates() {
+        LocalDate paidAt = LocalDate.of(2025, 10, 1);
+        LocalDate expiresAt = LocalDate.of(2025, 11, 1);
+        transactionDto.setPricingTier(null);
+        transactionDto.setAmount(2100);
+        transactionDto.setDate(paidAt);
+        transactionDto.setDescription("Оплата 12 занятий");
+        transactionDto.setLessonsPurchased(12);
+        transactionDto.setExpiresAt(expiresAt);
+        transactionDto.setCurrency("KGS");
+        when(studentRepository.findById(2L)).thenReturn(Optional.of(student));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TransactionDto result = transactionService.createTransaction(transactionDto);
+
+        assertEquals(16, student.getBalance());
+        assertEquals(2100, student.getTotalPaid());
+        assertEquals("KGS", student.getPaymentCurrency());
+        assertEquals(2100, student.getPaymentAmount());
+        assertEquals(paidAt, student.getPaymentDate());
+        assertEquals(expiresAt, student.getPaymentExpiresAt());
+        assertEquals(12, result.getLessonsPurchased());
+        assertEquals(expiresAt, result.getExpiresAt());
+        assertEquals("KGS", result.getCurrency());
+    }
 }

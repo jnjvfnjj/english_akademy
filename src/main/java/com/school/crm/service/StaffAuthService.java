@@ -2,6 +2,7 @@ package com.school.crm.service;
 
 import com.school.crm.model.dto.AuthRequest;
 import com.school.crm.model.dto.AuthResponse;
+import com.school.crm.model.dto.TeacherCreateRequest;
 import com.school.crm.model.entity.StaffAccount;
 import com.school.crm.model.entity.StaffSession;
 import com.school.crm.repository.StaffAccountRepository;
@@ -51,13 +52,6 @@ public class StaffAuthService {
     }
 
     @Transactional
-    public AuthResponse registerTeacher(AuthRequest request) {
-        requireName(request, "преподавателя");
-        StaffAccount teacher = createAccount(request, "TEACHER");
-        return createSession(teacher);
-    }
-
-    @Transactional
     public AuthResponse registerAdmin(AuthRequest request, String registrationCode) {
         requireName(request, "администратора");
         if (adminRegistrationCode == null || adminRegistrationCode.length() < 16) {
@@ -87,6 +81,24 @@ public class StaffAuthService {
     @Transactional(readOnly = true)
     public java.util.List<StaffAccount> getTeachers() {
         return accountRepository.findAllByRoleOrderByNameAsc("TEACHER");
+    }
+
+    @Transactional
+    public StaffAccount createTeacher(TeacherCreateRequest request) {
+        AuthRequest authRequest = new AuthRequest(request.email(), request.password(), request.name());
+        requireName(authRequest, "преподавателя");
+        StaffAccount teacher = createAccount(authRequest, "TEACHER");
+        teacher.setCanViewStudentPayments(false);
+        return accountRepository.save(teacher);
+    }
+
+    @Transactional
+    public StaffAccount setTeacherPaymentVisibility(long teacherId, boolean enabled) {
+        StaffAccount teacher = accountRepository.findById(teacherId)
+                .filter(account -> "TEACHER".equals(account.getRole()))
+                .orElseThrow(() -> new IllegalArgumentException("Преподаватель не найден."));
+        teacher.setCanViewStudentPayments(enabled);
+        return accountRepository.save(teacher);
     }
 
     @Transactional
@@ -189,7 +201,8 @@ public class StaffAuthService {
                 account.getEmail(),
                 account.getName(),
                 isAdmin(account.getRole()) ? "Admin" : "Teacher",
-                "SUPER_ADMIN".equals(account.getRole())
+                "SUPER_ADMIN".equals(account.getRole()),
+                account.canViewStudentPayments()
         );
     }
 
