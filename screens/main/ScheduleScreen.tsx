@@ -23,6 +23,12 @@ const calendarTimes = Array.from({ length: 24 }, (_, index) => {
   const minute = index % 2 === 0 ? '00' : '30';
   return `${String(hour).padStart(2, '0')}:${minute}`;
 });
+const shortWeekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+interface ScheduleCell {
+  dayOfWeek: number;
+  time: string;
+}
 
 export default function ScheduleScreen() {
   const dispatch = useDispatch();
@@ -38,14 +44,15 @@ export default function ScheduleScreen() {
   const [scheduleModal, setScheduleModal] = useState(false);
   const [detailModal, setDetailModal] = useState(false);
   const [selectedLesson, setSelectedLesson] = useState<any | null>(null);
-  const [weeklyModalOpen, setWeeklyModalOpen] = useState(false);
+  const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
   const [rosterModalOpen, setRosterModalOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<(typeof weeklySchedules)[number] | null>(null);
-  const [slotGroupId, setSlotGroupId] = useState('');
-  const [slotDay, setSlotDay] = useState(1);
-  const [slotTime, setSlotTime] = useState('10:00');
-  const [slotTopic, setSlotTopic] = useState('');
-  const [slotDuration, setSlotDuration] = useState('1');
+  const [assignmentGroupId, setAssignmentGroupId] = useState('');
+  const [assignmentCells, setAssignmentCells] = useState<ScheduleCell[]>([]);
+  const [assignmentTopic, setAssignmentTopic] = useState('');
+  const [assignmentDuration, setAssignmentDuration] = useState('1');
+  const [assignmentError, setAssignmentError] = useState('');
+  const [assignmentSaving, setAssignmentSaving] = useState(false);
   const [rosterSearch, setRosterSearch] = useState('');
   const [rosterSaving, setRosterSaving] = useState(false);
 
@@ -75,6 +82,24 @@ export default function ScheduleScreen() {
     setSelectedGroupId(groups[0].id);
     setTopic('');
     setScheduleModal(true);
+  };
+
+  const openAssignmentModal = (cell?: ScheduleCell) => {
+    const firstGroup = groups[0];
+    if (!firstGroup) return;
+    setAssignmentGroupId(firstGroup.id);
+    setAssignmentTopic(firstGroup.title);
+    setAssignmentCells(cell ? [cell] : []);
+    setAssignmentError('');
+    setAssignmentModalOpen(true);
+  };
+
+  const toggleAssignmentCell = (cell: ScheduleCell) => {
+    setAssignmentCells(current => current.some(selected =>
+      selected.dayOfWeek === cell.dayOfWeek && selected.time === cell.time
+    )
+      ? current.filter(selected => selected.dayOfWeek !== cell.dayOfWeek || selected.time !== cell.time)
+      : [...current, cell]);
   };
 
   const handleCreateLesson = () => {
@@ -142,30 +167,69 @@ export default function ScheduleScreen() {
     }
   };
 
-  const handleCreateWeeklySlot = async () => {
-    if (!token || !/^\d+$/.test(slotGroupId) || !slotTopic.trim()
-        || !/^([01]\d|2[0-3]):[0-5]\d$/.test(slotTime)
-        || !['00', '30'].includes(slotTime.slice(-2))
-        || !Number.isFinite(Number(slotDuration)) || Number(slotDuration) < 0.5 || Number(slotDuration) > 4) {
-      dispatch(setSyncError('Выберите группу, укажите тему, корректное время и длительность от 0,5 до 4 часов.'));
+  const handleCreateWeeklyAssignments = async () => {
+    if (!token || !/^\d+$/.test(assignmentGroupId) || !assignmentTopic.trim()
+        || assignmentCells.length === 0
+        || !Number.isFinite(Number(assignmentDuration))
+        || Number(assignmentDuration) < 0.5 || Number(assignmentDuration) > 4) {
+      setAssignmentError('Выберите группу, тему, хотя бы одну ячейку и длительность от 0,5 до 4 часов.');
       return;
     }
+    const duplicate = assignmentCells.find(cell => weeklySchedules.some(schedule =>
+      schedule.groupId === assignmentGroupId
+        && schedule.dayOfWeek === cell.dayOfWeek
+        && schedule.time === cell.time
+    ));
+    if (duplicate) {
+      setAssignmentError(
+        `У группы уже есть занятие: ${weekdays[duplicate.dayOfWeek - 1]}, ${duplicate.time}. Снимите эту ячейку перед сохранением.`
+      );
+      return;
+    }
+
+    setAssignmentSaving(true);
+    setAssignmentError('');
     try {
-      await apiRequest<ApiWeeklySchedule>('/weekly-schedules', {
-        method: 'POST',
-        body: JSON.stringify({
-          groupId: Number(slotGroupId),
-          dayOfWeek: slotDay,
-          time: slotTime,
-          topic: slotTopic.trim(),
-          duration: Number(slotDuration)
-        })
-      }, token);
-      setWeeklyModalOpen(false);
-      setSlotTopic('');
+      const outcomes = await Promise.all(assignmentCells.map(async cell => {
+        try {
+          const schedule = await apiRequest<ApiWeeklySchedule>('/weekly-schedules', {
+            method: 'POST',
+            body: JSON.stringify({
+              groupId: Number(assignmentGroupId),
+              dayOfWeek: cell.dayOfWeek,
+              time: cell.time,
+              topic: assignmentTopic.trim(),
+              duration: Number(assignmentDuration)
+            })
+          }, token);
+          return { cell, schedule };
+        } catch (error) {
+          return { cell, error };
+        }
+      }));
+      const savedSchedules = outcomes.flatMap(outcome =>
+        'schedule' in outcome ? [mapApiWeeklySchedule(outcome.schedule)] : []
+      );
+      if (savedSchedules.length > 0) {
+        dispatch(replaceWeeklySchedules([...weeklySchedules, ...savedSchedules]));
+      }
+      const failed = outcomes.filter(outcome => 'error' in outcome);
+      if (failed.length > 0) {
+        const firstError = failed[0].error;
+        const reason = firstError instanceof ApiError
+          ? firstError.message
+          : 'Не удалось сохранить одно или несколько занятий.';
+        setAssignmentCells(failed.map(outcome => outcome.cell));
+        setAssignmentError(
+          `Сохранено ячеек: ${savedSchedules.length}. Не сохранено: ${failed.length}. ${reason}`
+        );
+      } else {
+        setAssignmentModalOpen(false);
+        setAssignmentCells([]);
+      }
       await refreshScheduleData();
-    } catch (error) {
-      dispatch(setSyncError(error instanceof ApiError ? error.message : 'Не удалось добавить повторяющееся занятие.'));
+    } finally {
+      setAssignmentSaving(false);
     }
   };
 
@@ -230,18 +294,15 @@ export default function ScheduleScreen() {
         <View className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
           <View>
             <Text className="text-xl font-bold text-slate-800">Недельное расписание</Text>
-            <Text className="mt-1 text-xs text-slate-500">Повторяющиеся занятия · нажмите на ячейку, чтобы управлять списком учеников.</Text>
+            <Text className="mt-1 text-xs text-slate-500">Нажмите пустую ячейку, чтобы назначить занятие; существующее занятие открывает список учеников.</Text>
           </View>
           {groups.length > 0 && (
             <TouchableOpacity
-              onPress={() => {
-                setSlotGroupId(groups[0].id);
-                setWeeklyModalOpen(true);
-              }}
+              onPress={() => openAssignmentModal()}
               className="flex-row items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2"
             >
               <Plus size={16} color="#ffffff" />
-              <Text className="text-xs font-bold text-white">Добавить занятие</Text>
+              <Text className="text-xs font-bold text-white">Назначить занятие</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -268,6 +329,19 @@ export default function ScheduleScreen() {
                   );
                   return (
                     <View key={`${day}-${timeLabel}`} style={{ width: 160, minHeight: 70 }} className="gap-1 border-l border-slate-100 p-1">
+                      {slots.length === 0 ? (
+                        <TouchableOpacity
+                          accessibilityRole="button"
+                          accessibilityLabel={`Назначить занятие: ${day}, ${timeLabel}`}
+                          onPress={() => openAssignmentModal({ dayOfWeek: dayIndex + 1, time: timeLabel })}
+                          disabled={groups.length === 0}
+                          className="min-h-[60px] flex-1 flex-row items-center justify-center gap-1 rounded-lg border border-dashed border-slate-200 bg-slate-50"
+                        >
+                          <Plus size={13} color="#6366f1" />
+                          <Text className="text-[10px] font-semibold text-indigo-600">Назначить</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <>
                       {slots.map(slot => (
                         <TouchableOpacity
                           key={slot.id}
@@ -287,6 +361,17 @@ export default function ScheduleScreen() {
                           </View>
                         </TouchableOpacity>
                       ))}
+                          <TouchableOpacity
+                            accessibilityRole="button"
+                            accessibilityLabel={`Добавить занятие: ${day}, ${timeLabel}`}
+                            onPress={() => openAssignmentModal({ dayOfWeek: dayIndex + 1, time: timeLabel })}
+                            disabled={groups.length === 0}
+                            className="items-center rounded-md border border-dashed border-slate-200 py-1"
+                          >
+                            <Text className="text-[10px] font-semibold text-indigo-600">+ Добавить</Text>
+                          </TouchableOpacity>
+                        </>
+                      )}
                     </View>
                   );
                 })}

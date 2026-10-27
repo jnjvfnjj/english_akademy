@@ -7,19 +7,29 @@ import {
   Group,
   deleteGroup,
   mapApiGroup,
+  mapApiWeeklySchedule,
   replaceGroups,
+  replaceWeeklySchedules,
   setSyncError
 } from '../../store';
 import StudentStatusBadge from '../../components/StudentStatusBadge';
 import StudentDetailModal from '../../components/StudentDetailModal';
 import GroupDetailModal from '../../components/GroupDetailModal';
 import { Users, GraduationCap, Calendar, DollarSign, Plus, ArrowUpRight, TrendingUp, ChevronRight, X, Clock, CheckCircle, Search, Shield, BookOpen, Trash2 } from 'lucide-react-native';
-import { ApiError, ApiSchoolGroup, ApiTeacherAccount, apiRequest } from '../../services/api';
+import { ApiError, ApiSchoolGroup, ApiTeacherAccount, ApiWeeklySchedule, apiRequest } from '../../services/api';
+
+const groupScheduleWeekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+const groupScheduleTimes = Array.from({ length: 24 }, (_, index) => {
+  const hour = 8 + Math.floor(index / 2);
+  const minute = index % 2 === 0 ? '00' : '30';
+  return `${String(hour).padStart(2, '0')}:${minute}`;
+});
 
 export default function DashboardScreen({ navigation }: any) {
   const dispatch = useDispatch();
   const students = useSelector((state: RootState) => state.students.list);
   const groups = useSelector((state: RootState) => state.groups.list);
+  const weeklySchedules = useSelector((state: RootState) => state.weeklySchedules.list);
   const lessons = useSelector((state: RootState) => state.lessons.list);
   const transactions = useSelector((state: RootState) => state.billing.transactions);
   const token = useSelector((state: RootState) => state.auth.token);
@@ -53,6 +63,8 @@ export default function DashboardScreen({ navigation }: any) {
   const [newGroupDesc, setNewGroupDesc] = useState('');
   const [newGroupTeacherId, setNewGroupTeacherId] = useState<number | null>(null);
   const [newGroupStudentIds, setNewGroupStudentIds] = useState<string[]>([]);
+  const [newGroupScheduleDays, setNewGroupScheduleDays] = useState<number[]>([]);
+  const [newGroupScheduleTimes, setNewGroupScheduleTimes] = useState<string[]>([]);
 
   useEffect(() => {
     if (!isAdmin || !token) return;
@@ -67,7 +79,7 @@ export default function DashboardScreen({ navigation }: any) {
       })
       .catch(error => {
         if (!cancelled) dispatch(setSyncError(
-          error instanceof ApiError ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ СЃРїРёСЃРѕРє РїСЂРµРїРѕРґР°РІР°С‚РµР»РµР№.'
+          error instanceof ApiError ? error.message : 'Не удалось загрузить список преподавателей.'
         ));
       });
     return () => { cancelled = true; };
@@ -114,7 +126,11 @@ export default function DashboardScreen({ navigation }: any) {
 
   const handleAddGroup = async () => {
     if (!token || !newGroupTitle.trim() || !newGroupTeacherId) {
-      setGroupFormError('Р’РІРµРґРёС‚Рµ РЅР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹ Рё РІС‹Р±РµСЂРёС‚Рµ Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅРѕРіРѕ РїСЂРµРїРѕРґР°РІР°С‚РµР»СЏ.');
+      setGroupFormError('Введите название группы и выберите зарегистрированного преподавателя.');
+      return;
+    }
+    if ((newGroupScheduleDays.length === 0) !== (newGroupScheduleTimes.length === 0)) {
+      setGroupFormError('Для расписания выберите хотя бы один день недели и одно время.');
       return;
     }
     setGroupSaving(true);
@@ -125,18 +141,55 @@ export default function DashboardScreen({ navigation }: any) {
         body: JSON.stringify({
           title: newGroupTitle.trim(),
           level: newGroupLevel,
-          description: newGroupDesc.trim() || `РљСѓСЂСЃ СѓСЂРѕРІРЅСЏ ${newGroupLevel}`,
+          description: newGroupDesc.trim() || `Курс уровня ${newGroupLevel}`,
           teacherId: newGroupTeacherId,
           studentIds: newGroupStudentIds.map(Number)
         })
       }, token);
       dispatch(replaceGroups([...groups, mapApiGroup(created)]));
+      const groupTitle = newGroupTitle.trim();
       setNewGroupTitle('');
       setNewGroupDesc('');
       setNewGroupStudentIds([]);
+      setNewGroupScheduleDays([]);
+      setNewGroupScheduleTimes([]);
       setAddGroupModalOpen(false);
+
+      const scheduleSlots = newGroupScheduleDays.flatMap(dayOfWeek =>
+        newGroupScheduleTimes.map(time => ({ dayOfWeek, time }))
+      );
+      if (scheduleSlots.length > 0) {
+        const results = await Promise.allSettled(scheduleSlots.map(slot =>
+          apiRequest<ApiWeeklySchedule>('/weekly-schedules', {
+            method: 'POST',
+            body: JSON.stringify({
+              groupId: Number(created.id),
+              dayOfWeek: slot.dayOfWeek,
+              time: slot.time,
+              topic: groupTitle,
+              duration: 1
+            })
+          }, token)
+        ));
+        const savedSchedules = results.flatMap(result =>
+          result.status === 'fulfilled' ? [mapApiWeeklySchedule(result.value)] : []
+        );
+        if (savedSchedules.length > 0) {
+          dispatch(replaceWeeklySchedules([...weeklySchedules, ...savedSchedules]));
+        }
+        const failedSchedules = results.filter(result => result.status === 'rejected');
+        if (failedSchedules.length > 0) {
+          const firstError = failedSchedules[0].reason;
+          const reason = firstError instanceof ApiError
+            ? firstError.message
+            : 'Не удалось сохранить одно или несколько занятий.';
+          dispatch(setSyncError(
+            `Группа создана. Не удалось добавить расписание для ${failedSchedules.length} ячеек: ${reason}`
+          ));
+        }
+      }
     } catch (error) {
-      setGroupFormError(error instanceof ApiError ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ РіСЂСѓРїРїСѓ.');
+      setGroupFormError(error instanceof ApiError ? error.message : 'Не удалось создать группу.');
     } finally {
       setGroupSaving(false);
     }
@@ -151,7 +204,7 @@ export default function DashboardScreen({ navigation }: any) {
       if (groupModalKey === groupToDelete.id) setGroupModalKey(null);
       setGroupToDelete(null);
     } catch (error) {
-      dispatch(setSyncError(error instanceof ApiError ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ РіСЂСѓРїРїСѓ.'));
+      dispatch(setSyncError(error instanceof ApiError ? error.message : 'Не удалось удалить группу.'));
     }
   };
 
@@ -173,9 +226,9 @@ export default function DashboardScreen({ navigation }: any) {
       {/* Header section */}
       <View className="mb-8 flex-row justify-between items-center flex-wrap">
         <View className="mb-2">
-          <Text className="text-2xl font-bold text-slate-900">РћР±Р·РѕСЂ СѓСЃРїРµРІР°РµРјРѕСЃС‚Рё</Text>
+          <Text className="text-2xl font-bold text-slate-900">Обзор успеваемости</Text>
           <Text className="text-sm text-slate-500 mt-1">
-            Р’С‹ РІРѕС€Р»Рё РєР°Рє: <Text className="font-semibold text-indigo-600">{isAdmin ? 'РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ' : 'РџСЂРµРїРѕРґР°РІР°С‚РµР»СЊ'}</Text>
+            Вы вошли как: <Text className="font-semibold text-indigo-600">{isAdmin ? 'Администратор' : 'Преподаватель'}</Text>
           </Text>
         </View>
         {/* Quick action triggers */}
@@ -185,7 +238,7 @@ export default function DashboardScreen({ navigation }: any) {
             className="bg-indigo-600 hover:bg-indigo-700 px-4 py-2.5 rounded-lg flex-row items-center gap-2 shadow"
           >
             <Plus size={16} color="#ffffff" />
-            <Text className="text-white text-xs font-semibold">РќРѕРІС‹Р№ СЃС‚СѓРґРµРЅС‚</Text>
+            <Text className="text-white text-xs font-semibold">Новый студент</Text>
           </TouchableOpacity>}
 
           <TouchableOpacity 
@@ -193,7 +246,7 @@ export default function DashboardScreen({ navigation }: any) {
             className="bg-slate-800 hover:bg-slate-900 px-4 py-2.5 rounded-lg flex-row items-center gap-2 shadow"
           >
             <Calendar size={16} color="#ffffff" />
-            <Text className="text-white text-xs font-semibold">РќР°Р·РЅР°С‡РёС‚СЊ СѓСЂРѕРє РіСЂСѓРїРїС‹</Text>
+            <Text className="text-white text-xs font-semibold">Назначить урок группы</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -201,16 +254,16 @@ export default function DashboardScreen({ navigation }: any) {
       {/* Grid of four stat widgets */}
       <View className={`grid grid-cols-1 ${isAdmin ? 'md:grid-cols-4' : 'md:grid-cols-2'} gap-6 mb-8`}>
         
-        {/* Stat item 1: РђРєС‚РёРІРЅС‹Рµ СЃС‚СѓРґРµРЅС‚С‹ (CLICKABLE -> OPENS ACTIVE STUDENTS LIST) */}
+        {/* Stat item 1: Активные студенты (CLICKABLE -> OPENS ACTIVE STUDENTS LIST) */}
         <TouchableOpacity 
           onPress={() => setActiveStudentsModalOpen(true)}
           className="bg-white hover:bg-indigo-50/40 rounded-xl p-5 border border-slate-200 hover:border-indigo-300 shadow-sm flex-row items-center justify-between transition-all"
         >
           <View>
-            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">РђРєС‚РёРІРЅС‹Рµ СЃС‚СѓРґРµРЅС‚С‹</Text>
+            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Активные студенты</Text>
             <Text className="text-3xl font-extrabold text-slate-900 mt-2">{activeStudents}</Text>
             <View className="flex-row items-center mt-2.5">
-              <Text className="text-xs font-bold text-indigo-600">РќР°Р¶РјРёС‚Рµ РґР»СЏ СЃРїРёСЃРєР° в†’</Text>
+              <Text className="text-xs font-bold text-indigo-600">Нажмите для списка →</Text>
             </View>
           </View>
           <View className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
@@ -218,16 +271,16 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
         </TouchableOpacity>
 
-        {/* Stat item 2: Р—Р°РїР»Р°РЅРёСЂРѕРІР°РЅРѕ СѓСЂРѕРєРѕРІ (CLICKABLE -> OPENS SCHEDULED LESSONS LIST) */}
+        {/* Stat item 2: Запланировано уроков (CLICKABLE -> OPENS SCHEDULED LESSONS LIST) */}
         <TouchableOpacity 
           onPress={() => setScheduledLessonsModalOpen(true)}
           className="bg-white hover:bg-indigo-50/40 rounded-xl p-5 border border-slate-200 hover:border-indigo-300 shadow-sm flex-row items-center justify-between transition-all"
         >
           <View>
-            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Р—Р°РїР»Р°РЅРёСЂРѕРІР°РЅРѕ СѓСЂРѕРєРѕРІ</Text>
+            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Запланировано уроков</Text>
             <Text className="text-3xl font-extrabold text-slate-900 mt-2">{pendingLessons}</Text>
             <View className="flex-row items-center mt-2.5">
-              <Text className="text-xs font-bold text-indigo-600">РќР°Р¶РјРёС‚Рµ РґР»СЏ СЃРїРёСЃРєР° в†’</Text>
+              <Text className="text-xs font-bold text-indigo-600">Нажмите для списка →</Text>
             </View>
           </View>
           <View className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
@@ -236,17 +289,17 @@ export default function DashboardScreen({ navigation }: any) {
         </TouchableOpacity>
 
         {isAdmin && <>
-        {/* Stat item 3: РћР±С‰Р°СЏ РІС‹СЂСѓС‡РєР° */}
+        {/* Stat item 3: Общая выручка */}
         <View className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex-row items-center justify-between">
           <View>
-            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">РћР±С‰Р°СЏ РІС‹СЂСѓС‡РєР°</Text>
+            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Общая выручка</Text>
             <Text className="text-3xl font-extrabold text-slate-900 mt-2">
-              {isAdmin ? formatMoneySummary(totalIncomeKgs, totalIncomeUsd) : 'РќРµРґРѕСЃС‚СѓРїРЅРѕ'}
+              {isAdmin ? formatMoneySummary(totalIncomeKgs, totalIncomeUsd) : 'Недоступно'}
             </Text>
             <View className="flex-row items-center mt-2.5">
               <Plus size={14} color="#10b981" />
               <Text className="text-xs font-medium text-emerald-600 ml-1">
-                {isAdmin ? 'Р–СѓСЂРЅР°Р» РѕРїР»Р°С‚ РґРѕСЃС‚СѓРїРµРЅ' : 'Р”РѕСЃС‚СѓРїРЅРѕ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂСѓ'}
+                {isAdmin ? 'Журнал оплат доступен' : 'Доступно администратору'}
               </Text>
             </View>
           </View>
@@ -255,16 +308,16 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
         </View>
 
-        {/* Stat item 4: Р§РёСЃС‚С‹Р№ Р±Р°Р»Р°РЅСЃ */}
+        {/* Stat item 4: Чистый баланс */}
         <View className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex-row items-center justify-between">
           <View>
-            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Р§РёСЃС‚С‹Р№ Р±Р°Р»Р°РЅСЃ</Text>
+            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Чистый баланс</Text>
             <Text className={`text-3xl font-extrabold mt-2 ${profitKgs >= 0 ? "text-slate-900" : "text-rose-600"}`}>
-              {isAdmin ? formatMoneySummary(profitKgs, profitUsd) : 'РќРµРґРѕСЃС‚СѓРїРЅРѕ'}
+              {isAdmin ? formatMoneySummary(profitKgs, profitUsd) : 'Недоступно'}
             </Text>
             <View className="flex-row items-center mt-2.5">
               <ArrowUpRight size={14} color="#64748b" />
-              <Text className="text-xs font-medium text-slate-500 ml-1">РњР°СЂР¶РёРЅР°Р»СЊРЅРѕСЃС‚СЊ</Text>
+              <Text className="text-xs font-medium text-slate-500 ml-1">Маржинальность</Text>
             </View>
           </View>
           <View className={`p-3 rounded-xl ${profitKgs >= 0 ? "bg-slate-100" : "bg-rose-50"}`}>
@@ -279,9 +332,9 @@ export default function DashboardScreen({ navigation }: any) {
       <View className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-8">
         <View className="mb-4 flex-row justify-between items-center flex-wrap gap-3">
           <View>
-            <Text className="text-lg font-bold text-slate-800">РЈС‡РµР±РЅС‹Рµ РіСЂСѓРїРїС‹ (CEFR)</Text>
+            <Text className="text-lg font-bold text-slate-800">Учебные группы (CEFR)</Text>
             <Text className="text-xs text-slate-400 mt-1">
-              РќР°Р¶РјРёС‚Рµ РЅР° РіСЂСѓРїРїСѓ, С‡С‚РѕР±С‹ СЃСЂР°Р·Сѓ РѕС‚РєСЂС‹С‚СЊ СЃРїРёСЃРѕРє СЃС‚СѓРґРµРЅС‚РѕРІ РіСЂСѓРїРїС‹:
+              Нажмите на группу, чтобы сразу открыть список студентов группы:
             </Text>
           </View>
           
@@ -292,7 +345,7 @@ export default function DashboardScreen({ navigation }: any) {
               className="bg-indigo-600 hover:bg-indigo-700 px-3.5 py-2 rounded-lg flex-row items-center gap-1.5 shadow"
             >
               <Plus size={15} color="#ffffff" />
-              <Text className="text-white text-xs font-bold">Р”РѕР±Р°РІРёС‚СЊ РіСЂСѓРїРїСѓ</Text>
+              <Text className="text-white text-xs font-bold">Добавить группу</Text>
             </TouchableOpacity>}
 
             {selectedLevelGroup && (
@@ -301,7 +354,7 @@ export default function DashboardScreen({ navigation }: any) {
                 className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-2 rounded-lg flex-row items-center gap-1.5"
               >
                 <Users size={14} color="#4f46e5" />
-                <Text className="text-xs font-bold text-indigo-700">РћС‚РєСЂС‹С‚СЊ {selectedGroup?.title} СЃРїРёСЃРєРѕРј</Text>
+                <Text className="text-xs font-bold text-indigo-700">Открыть {selectedGroup?.title} списком</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -329,7 +382,7 @@ export default function DashboardScreen({ navigation }: any) {
                   </Text>
                   <Text className="text-slate-500 text-[10px] mt-0.5">{item.desc}</Text>
                   {item.teacherName ? (
-                    <Text className="text-indigo-600 text-[10px] font-semibold mt-1">РџСЂРµРї.: {item.teacherName}</Text>
+                    <Text className="text-indigo-600 text-[10px] font-semibold mt-1">Преп.: {item.teacherName}</Text>
                   ) : null}
                 </View>
                 <View className="flex-row items-center gap-2">
@@ -343,7 +396,7 @@ export default function DashboardScreen({ navigation }: any) {
                       setGroupToDelete(item);
                     }}
                     className="w-8 h-8 rounded-full items-center justify-center bg-rose-50 hover:bg-rose-100 border border-rose-200"
-                    accessibilityLabel="РЈРґР°Р»РёС‚СЊ РіСЂСѓРїРїСѓ"
+                    accessibilityLabel="Удалить группу"
                   >
                     <Trash2 size={13} color="#e11d48" />
                   </TouchableOpacity>}
@@ -353,9 +406,9 @@ export default function DashboardScreen({ navigation }: any) {
           })}
           {groups.length === 0 && (
             <View className="w-full p-6 bg-slate-50 border border-slate-200 rounded-xl items-center justify-center">
-              <Text className="text-sm font-semibold text-slate-600">РќРµС‚ СѓС‡РµР±РЅС‹С… РіСЂСѓРїРї</Text>
+              <Text className="text-sm font-semibold text-slate-600">Нет учебных групп</Text>
               <Text className="text-xs text-slate-400 mt-1">
-                {isAdmin ? 'РќР°Р¶РјРёС‚Рµ В«Р”РѕР±Р°РІРёС‚СЊ РіСЂСѓРїРїСѓВ», С‡С‚РѕР±С‹ СЃРѕР·РґР°С‚СЊ РіСЂСѓРїРїСѓ' : 'РџРѕРєР° РІР°Рј РЅРµ РЅР°Р·РЅР°С‡РёР»Рё СѓС‡РµР±РЅС‹Рµ РіСЂСѓРїРїС‹.'}
+                {isAdmin ? 'Нажмите «Добавить группу», чтобы создать группу' : 'Пока вам не назначили учебные группы.'}
               </Text>
             </View>
           )}
@@ -366,10 +419,10 @@ export default function DashboardScreen({ navigation }: any) {
           <View className="bg-slate-50 border border-slate-200/80 p-4 rounded-xl">
             <View className="flex-row justify-between items-center mb-3">
               <Text className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                РЎС‚СѓРґРµРЅС‚С‹ РіСЂСѓРїРїС‹ {selectedGroup.title} вЂў РќР°Р¶РјРёС‚Рµ РЅР° СЃС‚СЂРѕРєСѓ РґР»СЏ РїРѕР»РЅРѕРіРѕ РїСЂРѕС„РёР»СЏ:
+                Студенты группы {selectedGroup.title} • Нажмите на строку для полного профиля:
               </Text>
               <TouchableOpacity onPress={() => setGroupModalKey(selectedGroup.id)}>
-                <Text className="text-xs font-bold text-indigo-600">Р’СЃРµ СЃС‚СѓРґРµРЅС‚С‹ РіСЂСѓРїРїС‹ ({studentsInGroup(selectedGroup, selectedGroup.key).length}) в†’</Text>
+                <Text className="text-xs font-bold text-indigo-600">Все студенты группы ({studentsInGroup(selectedGroup, selectedGroup.key).length}) →</Text>
               </TouchableOpacity>
             </View>
 
@@ -402,7 +455,7 @@ export default function DashboardScreen({ navigation }: any) {
 
               {studentsInGroup(selectedGroup, selectedGroup.key).length === 0 && (
                 <View className="py-6 items-center">
-                  <Text className="text-xs text-slate-400">Р’ РіСЂСѓРїРїРµ {selectedGroup.title} РїРѕРєР° РЅРµС‚ СЃС‚СѓРґРµРЅС‚РѕРІ.</Text>
+                  <Text className="text-xs text-slate-400">В группе {selectedGroup.title} пока нет студентов.</Text>
                 </View>
               )}
             </View>
@@ -417,17 +470,17 @@ export default function DashboardScreen({ navigation }: any) {
         <View className="flex-1 min-w-0 md:min-w-[340px] bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-6 flex flex-col">
           <View className="flex-row justify-between items-center mb-6">
             <View>
-              <Text className="text-lg font-bold text-slate-800">РЈСЂРѕРєРё РЅР° СЃРµРіРѕРґРЅСЏ Рё СЂР°СЃРїРёСЃР°РЅРёРµ</Text>
-              <Text className="text-xs text-slate-400 mt-1">РЎРїРёСЃРѕРє Р±Р»РёР¶Р°Р№С€РёС… СѓСЂРѕРєРѕРІ РїРѕ РіСЂСѓРїРїР°Рј</Text>
+              <Text className="text-lg font-bold text-slate-800">Уроки на сегодня и расписание</Text>
+              <Text className="text-xs text-slate-400 mt-1">Список ближайших уроков по группам</Text>
             </View>
             <TouchableOpacity onPress={() => navigation.navigate('Schedule')} className="text-xs font-bold text-indigo-600">
-              <Text className="text-xs font-bold text-indigo-600">Р’СЃС‘ СЂР°СЃРїРёСЃР°РЅРёРµ в†’</Text>
+              <Text className="text-xs font-bold text-indigo-600">Всё расписание →</Text>
             </TouchableOpacity>
           </View>
 
           <View className="gap-3 flex-1">
             {lessons.slice(0, 4).map((lesson) => {
-              const displayName = lesson.groupName || lesson.studentName || 'РЈС‡РµР±РЅР°СЏ РіСЂСѓРїРїР°';
+              const displayName = lesson.groupName || lesson.studentName || 'Учебная группа';
               return (
                 <View 
                   key={lesson.id}
@@ -440,7 +493,7 @@ export default function DashboardScreen({ navigation }: any) {
                     <View className="flex-1">
                       <Text className="text-sm font-bold text-slate-800">{displayName}</Text>
                       <Text className="text-xs text-indigo-600 font-semibold mt-0.5">РўРµРјР°: {lesson.topic}</Text>
-                      <Text className="text-[11px] text-slate-400">РџСЂРµРїРѕРґР°РІР°С‚РµР»СЊ: {lesson.teacherName}</Text>
+                      <Text className="text-[11px] text-slate-400">Преподаватель: {lesson.teacherName}</Text>
                     </View>
                   </View>
 
@@ -456,7 +509,7 @@ export default function DashboardScreen({ navigation }: any) {
 
             {lessons.length === 0 && (
               <View className="py-12 items-center">
-                <Text className="text-slate-400 text-sm">РЈСЂРѕРєРѕРІ РЅР° СЃРµРіРѕРґРЅСЏ РЅРµ Р·Р°РїР»Р°РЅРёСЂРѕРІР°РЅРѕ.</Text>
+                <Text className="text-slate-400 text-sm">Уроков на сегодня не запланировано.</Text>
               </View>
             )}
           </View>
@@ -465,8 +518,8 @@ export default function DashboardScreen({ navigation }: any) {
         {/* Quick Access CRM Panel */}
         <View className="w-full lg:w-96 bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-6 flex flex-col justify-between">
           <View>
-            <Text className="text-lg font-bold text-slate-800 mb-2">Р‘С‹СЃС‚СЂС‹Р№ РґРѕСЃС‚СѓРї Рє CRM</Text>
-            <Text className="text-xs text-slate-500 mb-6">РЈРїСЂР°РІР»РµРЅРёРµ РіСЂСѓРїРїР°РјРё, СѓС‡РµС‚ Рё РїРµСЂРµС…РѕРґ Рє СЂРµРµСЃС‚СЂСѓ СЃС‚СѓРґРµРЅС‚РѕРІ.</Text>
+            <Text className="text-lg font-bold text-slate-800 mb-2">Быстрый доступ к CRM</Text>
+            <Text className="text-xs text-slate-500 mb-6">Управление группами, учет и переход к реестру студентов.</Text>
 
             {/* Payment Button - only for Admin */}
             {isAdmin && (
@@ -480,8 +533,8 @@ export default function DashboardScreen({ navigation }: any) {
                   <DollarSign size={18} color="#ffffff" />
                 </View>
                 <View>
-                  <Text className="text-sm font-bold text-slate-800">Р’РЅРµСЃС‚Рё РѕРїР»Р°С‚Сѓ СЃС‚СѓРґРµРЅС‚Р°</Text>
-                  <Text className="text-xs text-emerald-700 mt-0.5">РџРѕРїРѕР»РЅСЏРµС‚ Р±Р°Р»Р°РЅСЃ СѓС‡РµР±РЅС‹С… С‡Р°СЃРѕРІ</Text>
+                  <Text className="text-sm font-bold text-slate-800">Внести оплату студента</Text>
+                  <Text className="text-xs text-emerald-700 mt-0.5">Пополняет баланс учебных часов</Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -494,8 +547,8 @@ export default function DashboardScreen({ navigation }: any) {
                 <Users size={18} color="#ffffff" />
               </View>
               <View>
-                <Text className="text-sm font-bold text-slate-800">Р‘Р°Р·Р° СЃС‚СѓРґРµРЅС‚РѕРІ Рё СѓСЂРѕРІРЅРё</Text>
-                <Text className="text-xs text-indigo-700 mt-0.5">РџРѕРёСЃРє, СЃС‚Р°С‚СѓСЃ Р°РєС‚РёРІРЅРѕСЃС‚Рё Рё РєРѕРЅС‚Р°РєС‚С‹</Text>
+                <Text className="text-sm font-bold text-slate-800">База студентов и уровни</Text>
+                <Text className="text-xs text-indigo-700 mt-0.5">Поиск, статус активности и контакты</Text>
               </View>
             </TouchableOpacity>
 
@@ -507,21 +560,21 @@ export default function DashboardScreen({ navigation }: any) {
                 <Plus size={18} color="#ffffff" />
               </View>
               <View>
-                <Text className="text-sm font-bold text-slate-800">РќРѕРІР°СЏ СѓС‡РµР±РЅР°СЏ РіСЂСѓРїРїР°</Text>
-                <Text className="text-xs text-slate-500 mt-0.5">РЎРѕР·РґР°РЅРёРµ РіСЂСѓРїРїС‹ РґР»СЏ СЂР°СЃРїРёСЃР°РЅРёСЏ</Text>
+                <Text className="text-sm font-bold text-slate-800">Новая учебная группа</Text>
+                <Text className="text-xs text-slate-500 mt-0.5">Создание группы для расписания</Text>
               </View>
             </TouchableOpacity>
           </View>
 
           <View className="pt-6 border-t border-slate-100 mt-6">
-            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">РЎС‚Р°С‚СѓСЃ СЃРёСЃС‚РµРјС‹</Text>
+            <Text className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Статус системы</Text>
             <View className="flex-row items-center justify-between text-xs text-slate-600 mb-1">
-              <Text>Р‘Р°Р·Р° РґР°РЅРЅС‹С…</Text>
-              <Text className="text-emerald-600 font-bold">в—Џ РџРѕРґРєР»СЋС‡РµРЅРѕ</Text>
+              <Text>База данных</Text>
+              <Text className="text-emerald-600 font-bold">● Подключено</Text>
             </View>
             <View className="flex-row items-center justify-between text-xs text-slate-600">
-              <Text>РЎРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ РґР°РЅРЅС‹С…</Text>
-              <Text className="text-indigo-600 font-bold">Р РµР°РєС‚РёРІРЅР°СЏ Р»РѕРєР°Р»СЊРЅР°СЏ</Text>
+              <Text>Синхронизация данных</Text>
+              <Text className="text-indigo-600 font-bold">Реактивная локальная</Text>
             </View>
           </View>
         </View>
@@ -538,9 +591,9 @@ export default function DashboardScreen({ navigation }: any) {
                   <Users size={20} color="#ffffff" />
                 </View>
                 <View>
-                  <Text className="text-lg font-bold text-white">РЎРїРёСЃРѕРє Р°РєС‚РёРІРЅС‹С… СЃС‚СѓРґРµРЅС‚РѕРІ</Text>
+                  <Text className="text-lg font-bold text-white">Список активных студентов</Text>
                   <Text className="text-xs text-indigo-200">
-                    Р’СЃРµРіРѕ Р°РєС‚РёРІРЅС‹С…: {activeStudents} СЃС‚СѓРґРµРЅС‚РѕРІ
+                    Всего активных: {activeStudents} студентов
                   </Text>
                 </View>
               </View>
@@ -555,7 +608,7 @@ export default function DashboardScreen({ navigation }: any) {
               <TextInput
                 value={activeStudentsSearch}
                 onChangeText={setActiveStudentsSearch}
-                placeholder="РџРѕРёСЃРє Р°РєС‚РёРІРЅРѕРіРѕ СЃС‚СѓРґРµРЅС‚Р° РїРѕ РёРјРµРЅРё, email РёР»Рё СѓСЂРѕРІРЅСЋ..."
+                placeholder="Поиск активного студента по имени, email или уровню..."
                 className="flex-1 text-xs text-slate-800 py-1"
               />
             </View>
@@ -578,15 +631,15 @@ export default function DashboardScreen({ navigation }: any) {
                       </View>
                       <View className="flex-1">
                         <Text className="text-sm font-bold text-slate-800">{std.name}</Text>
-                        <Text className="text-xs text-slate-400">{std.email} вЂў {std.phone}</Text>
-                        <Text className="text-[11px] text-indigo-600 font-semibold mt-0.5">РЈСЂРѕРІРµРЅСЊ: {std.level}</Text>
+                        <Text className="text-xs text-slate-400">{std.email} · {std.phone}</Text>
+                        <Text className="text-[11px] text-indigo-600 font-semibold mt-0.5">Уровень: {std.level}</Text>
                       </View>
                     </View>
 
                     <View className="items-end gap-1.5">
                       <StudentStatusBadge student={std} size="sm" interactive={isAdmin} />
                       <Text className="text-xs font-bold text-slate-700 bg-white border border-slate-200 px-2.5 py-0.5 rounded-full">
-                        {std.balance} С‡.
+                        {std.balance} зан.
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -594,16 +647,16 @@ export default function DashboardScreen({ navigation }: any) {
 
                 {filteredActiveStudents.length === 0 && (
                   <View className="py-12 items-center">
-                    <Text className="text-slate-400 text-xs">РђРєС‚РёРІРЅС‹С… СЃС‚СѓРґРµРЅС‚РѕРІ РЅРµ РЅР°Р№РґРµРЅРѕ.</Text>
+                    <Text className="text-slate-400 text-xs">Активных студентов не найдено.</Text>
                   </View>
                 )}
               </View>
             </ScrollView>
 
             <View className="p-4 border-t border-slate-200 flex-row justify-between items-center bg-slate-50">
-              <Text className="text-xs text-slate-500">РќР°Р¶РјРёС‚Рµ РЅР° СЃС‚СѓРґРµРЅС‚Р° РґР»СЏ РѕС‚РєСЂС‹С‚РёСЏ РµРіРѕ Р»РёС‡РЅРѕРіРѕ РґРµР»Р°</Text>
+              <Text className="text-xs text-slate-500">Нажмите на студента для открытия его личного дела</Text>
               <TouchableOpacity onPress={() => setActiveStudentsModalOpen(false)} className="px-4 py-2 bg-slate-800 rounded-lg">
-                <Text className="text-white text-xs font-bold">Р—Р°РєСЂС‹С‚СЊ</Text>
+                <Text className="text-white text-xs font-bold">Закрыть</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -620,9 +673,9 @@ export default function DashboardScreen({ navigation }: any) {
                   <GraduationCap size={20} color="#ffffff" />
                 </View>
                 <View>
-                  <Text className="text-lg font-bold text-white">Р—Р°РїР»Р°РЅРёСЂРѕРІР°РЅРЅС‹Рµ СѓСЂРѕРєРё</Text>
+                  <Text className="text-lg font-bold text-white">Запланированные уроки</Text>
                   <Text className="text-xs text-indigo-200">
-                    Р’СЃРµРіРѕ РІ РіСЂР°С„РёРєРµ: {pendingLessons} СѓСЂРѕРєРѕРІ
+                    Всего в графике: {pendingLessons} уроков
                   </Text>
                 </View>
               </View>
@@ -637,7 +690,7 @@ export default function DashboardScreen({ navigation }: any) {
               <TextInput
                 value={scheduledLessonsSearch}
                 onChangeText={setScheduledLessonsSearch}
-                placeholder="РџРѕРёСЃРє РїРѕ РЅР°Р·РІР°РЅРёСЋ РіСЂСѓРїРїС‹, С‚РµРјРµ РёР»Рё РїСЂРµРїРѕРґР°РІР°С‚РµР»СЋ..."
+                placeholder="Поиск по названию группы, теме или преподавателю..."
                 className="flex-1 text-xs text-slate-800 py-1"
               />
             </View>
@@ -646,7 +699,7 @@ export default function DashboardScreen({ navigation }: any) {
             <ScrollView className="p-4" showsVerticalScrollIndicator={true}>
               <View className="gap-3">
                 {filteredScheduledLessons.map(lesson => {
-                  const displayName = lesson.groupName || lesson.studentName || 'РЈС‡РµР±РЅР°СЏ РіСЂСѓРїРїР°';
+                  const displayName = lesson.groupName || lesson.studentName || 'Учебная группа';
                   return (
                     <View 
                       key={lesson.id} 
@@ -660,11 +713,11 @@ export default function DashboardScreen({ navigation }: any) {
                           <View className="flex-row items-center gap-2">
                             <Text className="text-sm font-bold text-slate-800">{displayName}</Text>
                             <View className="bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
-                              <Text className="text-[10px] font-bold text-indigo-700">Р“СЂСѓРїРїР°</Text>
+                              <Text className="text-[10px] font-bold text-indigo-700">Группа</Text>
                             </View>
                           </View>
                           <Text className="text-xs text-indigo-600 font-bold mt-0.5">РўРµРјР°: {lesson.topic}</Text>
-                          <Text className="text-xs text-slate-400 mt-0.5">РџСЂРµРїРѕРґР°РІР°С‚РµР»СЊ: {lesson.teacherName}</Text>
+                          <Text className="text-xs text-slate-400 mt-0.5">Преподаватель: {lesson.teacherName}</Text>
                         </View>
                       </View>
 
@@ -682,7 +735,7 @@ export default function DashboardScreen({ navigation }: any) {
 
                 {filteredScheduledLessons.length === 0 && (
                   <View className="py-12 items-center">
-                    <Text className="text-slate-400 text-xs">Р—Р°РїР»Р°РЅРёСЂРѕРІР°РЅРЅС‹С… СѓСЂРѕРєРѕРІ РЅРµ РЅР°Р№РґРµРЅРѕ.</Text>
+                    <Text className="text-slate-400 text-xs">Запланированных уроков не найдено.</Text>
                   </View>
                 )}
               </View>
@@ -697,11 +750,11 @@ export default function DashboardScreen({ navigation }: any) {
                 className="px-4 py-2 bg-indigo-600 rounded-lg flex-row items-center gap-1.5"
               >
                 <Plus size={14} color="#ffffff" />
-                <Text className="text-white text-xs font-bold">РќР°Р·РЅР°С‡РёС‚СЊ РЅРѕРІС‹Р№ СѓСЂРѕРє</Text>
+                <Text className="text-white text-xs font-bold">Назначить новый урок</Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => setScheduledLessonsModalOpen(false)} className="px-4 py-2 bg-slate-800 rounded-lg">
-                <Text className="text-white text-xs font-bold">Р—Р°РєСЂС‹С‚СЊ</Text>
+                <Text className="text-white text-xs font-bold">Закрыть</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -715,7 +768,7 @@ export default function DashboardScreen({ navigation }: any) {
             
             {/* Pinned Header */}
             <View className="px-6 py-4 border-b border-slate-100 flex-row justify-between items-center bg-slate-50">
-              <Text className="text-lg font-bold text-slate-900">РЎРѕР·РґР°С‚СЊ РЅРѕРІСѓСЋ СѓС‡РµР±РЅСѓСЋ РіСЂСѓРїРїСѓ</Text>
+              <Text className="text-lg font-bold text-slate-900">Создать новую учебную группу</Text>
               <TouchableOpacity onPress={() => setAddGroupModalOpen(false)} className="p-1 rounded-full hover:bg-slate-200">
                 <X size={18} color="#64748b" />
               </TouchableOpacity>
@@ -732,19 +785,19 @@ export default function DashboardScreen({ navigation }: any) {
               <View className="space-y-4">
                 <View>
                   <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">
-                    РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹ *
+                    Название группы *
                   </Text>
                   <TextInput
                     value={newGroupTitle}
                     onChangeText={setNewGroupTitle}
-                    placeholder="РќР°РїСЂРёРјРµСЂ: Р“СЂСѓРїРїР° B1+ РРЅС‚РµРЅСЃРёРІ / IELTS РџРѕРґРіРѕС‚РѕРІРєР°"
+                    placeholder="Например: Группа B1+ / IELTS"
                     className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm"
                   />
                 </View>
 
                 <View>
                   <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">
-                    РЈСЂРѕРІРµРЅСЊ РїРѕРґРіРѕС‚РѕРІРєРё (CEFR)
+                    Уровень подготовки (CEFR)
                   </Text>
                   <View className="flex-row flex-wrap gap-1.5 bg-slate-50 border border-slate-200 p-1.5 rounded-lg">
                     {['A1', 'A2', 'B1', 'B2', 'C1', 'C2'].map(lvl => (
@@ -765,19 +818,76 @@ export default function DashboardScreen({ navigation }: any) {
 
                 <View>
                   <Text className="text-xs font-semibold text-slate-500 uppercase mb-1">
-                    РћРїРёСЃР°РЅРёРµ Рё С„РѕРєСѓСЃ РєСѓСЂСЃР°
+                    Описание и фокус курса
                   </Text>
                   <TextInput
                     value={newGroupDesc}
                     onChangeText={setNewGroupDesc}
-                    placeholder="РќР°РїСЂРёРјРµСЂ: Р Р°Р·РіРѕРІРѕСЂРЅР°СЏ РїСЂР°РєС‚РёРєР°, РіСЂР°РјРјР°С‚РёРєР° Рё Р°СѓРґРёСЂРѕРІР°РЅРёРµ"
+                    placeholder="Например: Разговорная практика, грамматика и аудирование"
                     className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 text-sm"
                   />
                 </View>
 
                 <View>
+                  <Text className="mb-1 text-xs font-semibold uppercase text-slate-500">
+                    Расписание занятий
+                  </Text>
+                  <Text className="mb-3 text-xs text-slate-500">
+                    Необязательно. Выберите дни и время: для каждой пары будет создано занятие на неделю.
+                  </Text>
+                  <Text className="mb-2 text-xs font-semibold text-slate-600">Дни недели</Text>
+                  <View className="mb-3 flex-row flex-wrap gap-2">
+                    {groupScheduleWeekdays.map((day, index) => {
+                      const dayOfWeek = index + 1;
+                      const selected = newGroupScheduleDays.includes(dayOfWeek);
+                      return (
+                        <TouchableOpacity
+                          key={day}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: selected }}
+                          onPress={() => setNewGroupScheduleDays(current => selected
+                            ? current.filter(value => value !== dayOfWeek)
+                            : [...current, dayOfWeek])}
+                          className={`rounded-lg border px-3 py-2 ${selected ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white'}`}
+                        >
+                          <Text className={`text-xs font-semibold ${selected ? 'text-indigo-700' : 'text-slate-600'}`}>
+                            {day}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <Text className="mb-2 text-xs font-semibold text-slate-600">Время</Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    {groupScheduleTimes.map(scheduleTime => {
+                      const selected = newGroupScheduleTimes.includes(scheduleTime);
+                      return (
+                        <TouchableOpacity
+                          key={scheduleTime}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: selected }}
+                          onPress={() => setNewGroupScheduleTimes(current => selected
+                            ? current.filter(value => value !== scheduleTime)
+                            : [...current, scheduleTime])}
+                          className={`rounded-lg border px-2.5 py-2 ${selected ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white'}`}
+                        >
+                          <Text className={`text-xs font-semibold ${selected ? 'text-indigo-700' : 'text-slate-600'}`}>
+                            {scheduleTime}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  {newGroupScheduleDays.length > 0 && newGroupScheduleTimes.length > 0 && (
+                    <Text className="mt-2 text-xs font-semibold text-indigo-600">
+                      Будет добавлено ячеек: {newGroupScheduleDays.length * newGroupScheduleTimes.length}
+                    </Text>
+                  )}
+                </View>
+
+                <View>
                   <Text className="text-xs font-semibold text-slate-500 uppercase mb-2">
-                  Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅС‹Р№ РїСЂРµРїРѕРґР°РІР°С‚РµР»СЊ *
+                  Зарегистрированный преподаватель *
                   </Text>
                   <View className="gap-2">
                   {teacherAccounts.map(teacher => (
@@ -794,7 +904,7 @@ export default function DashboardScreen({ navigation }: any) {
                   ))}
                   {teacherAccounts.length === 0 && (
                     <Text className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
-                      РЎРЅР°С‡Р°Р»Р° СЃРѕР·РґР°Р№С‚Рµ РїСЂРµРїРѕРґР°РІР°С‚РµР»СЏ РІ СЂР°Р·РґРµР»Рµ В«РџСЂРµРїРѕРґР°РІР°С‚РµР»РёВ».
+                      Сначала создайте преподавателя в разделе «Преподаватели».
                     </Text>
                   )}
                   </View>
@@ -802,7 +912,7 @@ export default function DashboardScreen({ navigation }: any) {
 
                 <View>
                   <Text className="text-xs font-semibold text-slate-500 uppercase mb-2">
-                  РЎС‚СѓРґРµРЅС‚С‹ РіСЂСѓРїРїС‹
+                  Студенты группы
                   </Text>
                   <View className="gap-2">
                   {students.map(student => {
@@ -818,11 +928,11 @@ export default function DashboardScreen({ navigation }: any) {
                         className={`rounded-lg border p-3 ${selected ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white'}`}
                       >
                         <Text className="text-sm font-semibold text-slate-800">{student.name}</Text>
-                        <Text className="text-xs text-slate-500">{student.level} В· {student.email}</Text>
+                        <Text className="text-xs text-slate-500">{student.level} · {student.email}</Text>
                       </TouchableOpacity>
                     );
                   })}
-                  {students.length === 0 && <Text className="text-xs text-slate-500">РЎРЅР°С‡Р°Р»Р° РґРѕР±Р°РІСЊС‚Рµ СЃС‚СѓРґРµРЅС‚РѕРІ РІ Р±Р°Р·Сѓ.</Text>}
+                  {students.length === 0 && <Text className="text-xs text-slate-500">Сначала добавьте студентов в базу.</Text>}
                   </View>
                 </View>
               </View>
@@ -832,10 +942,10 @@ export default function DashboardScreen({ navigation }: any) {
             {/* Pinned Footer with Actions */}
             <View className="px-6 py-3.5 border-t border-slate-100 bg-slate-50 flex-row justify-end gap-3">
               <TouchableOpacity onPress={() => setAddGroupModalOpen(false)} className="px-4 py-2.5 rounded-lg border border-slate-200 bg-white">
-                <Text className="text-xs font-semibold text-slate-500">РћС‚РјРµРЅР°</Text>
+                <Text className="text-xs font-semibold text-slate-500">Отмена</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => void handleAddGroup()} disabled={groupSaving || teacherAccounts.length === 0} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow">
-                <Text className="text-xs font-bold text-white">{groupSaving ? 'РЎРѕС…СЂР°РЅРµРЅРёРµ...' : 'РЎРѕР·РґР°С‚СЊ РіСЂСѓРїРїСѓ'}</Text>
+                <Text className="text-xs font-bold text-white">{groupSaving ? 'Сохранение...' : 'Создать группу'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -891,11 +1001,11 @@ export default function DashboardScreen({ navigation }: any) {
             </View>
 
             <Text className="text-lg font-bold text-slate-900 mb-2">
-              РЈРґР°Р»РёС‚СЊ РіСЂСѓРїРїСѓ В«{groupToDelete?.title}В»?
+              Удалить группу «{groupToDelete?.title}»?
             </Text>
 
             <Text className="text-sm text-slate-600 mb-6 leading-relaxed">
-              Р’С‹ РґРµР№СЃС‚РІРёС‚РµР»СЊРЅРѕ С…РѕС‚РёС‚Рµ СѓРґР°Р»РёС‚СЊ СЌС‚Сѓ РіСЂСѓРїРїСѓ РёР· СѓС‡РµР±РЅС‹С… РіСЂСѓРїРї? РЎС‚СѓРґРµРЅС‚С‹ СЃРѕС…СЂР°РЅСЏС‚СЃСЏ РІ Р±Р°Р·Рµ РґР°РЅРЅС‹С… С€РєРѕР»С‹.
+              Вы действительно хотите удалить эту группу из учебных групп? Студенты сохранятся в базе данных школы.
             </Text>
 
             <View className="flex-row justify-end gap-3">
@@ -903,7 +1013,7 @@ export default function DashboardScreen({ navigation }: any) {
                 onPress={() => setGroupToDelete(null)}
                 className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50"
               >
-                <Text className="text-sm font-semibold text-slate-700">РћС‚РјРµРЅР°</Text>
+                <Text className="text-sm font-semibold text-slate-700">Отмена</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -911,7 +1021,7 @@ export default function DashboardScreen({ navigation }: any) {
                 className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 flex-row items-center gap-2 shadow-sm"
               >
                 <Trash2 size={16} color="#ffffff" />
-                <Text className="text-sm font-bold text-white">Р”Р°, СѓРґР°Р»РёС‚СЊ РіСЂСѓРїРїСѓ</Text>
+                <Text className="text-sm font-bold text-white">Да, удалить группу</Text>
               </TouchableOpacity>
             </View>
           </View>
